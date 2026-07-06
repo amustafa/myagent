@@ -2,10 +2,30 @@ package main
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestSelectViewListsTemplatesUnderAddNewFlavor(t *testing.T) {
+	t.Setenv("MYAGENTCFG_DIR", t.TempDir())
+	tpl := stubTemplate(t)
+	m := newModel("/src/.claude", nil, []Template{tpl})
+	m.targetClaude = filepath.Join(t.TempDir(), ".claude")
+	m = m.enterSelect()
+
+	out := m.viewSelect()
+	if !strings.Contains(out, "Add New Flavor") {
+		t.Errorf("expected an 'Add New Flavor' header, got:\n%s", out)
+	}
+	if !strings.Contains(out, "stub") {
+		t.Errorf("expected the template name listed, got:\n%s", out)
+	}
+	if strings.Contains(out, "Add new flavor") { // the old single action row
+		t.Errorf("old '＋ Add new flavor' action row should be gone:\n%s", out)
+	}
+}
 
 func send(t *testing.T, m model, msg tea.Msg) model {
 	t.Helper()
@@ -26,16 +46,12 @@ func TestCreateFlavorFlow(t *testing.T) {
 	m.targetClaude = filepath.Join(t.TempDir(), ".claude")
 	m = m.enterSelect()
 
-	// Only row is "＋ Add new flavor"; cursor should be on it.
-	if m.rows[m.cursor].kind != rowAddFlavor {
-		t.Fatalf("expected cursor on add-flavor row, got %+v", m.rows[m.cursor])
+	// Only row is the stub template under "Add New Flavor"; cursor is on it.
+	if m.rows[m.cursor].kind != rowTemplate {
+		t.Fatalf("expected cursor on a template row, got %+v", m.rows[m.cursor])
 	}
 
-	m = send(t, m, key(" ")) // open create
-	if m.screen != screenPickTemplate {
-		t.Fatalf("want screenPickTemplate, got %d", m.screen)
-	}
-	m = send(t, m, special(tea.KeyEnter)) // pick the stub template
+	m = send(t, m, key(" ")) // selecting a template goes straight to its form
 	if m.screen != screenFlavorForm {
 		t.Fatalf("want screenFlavorForm, got %d", m.screen)
 	}

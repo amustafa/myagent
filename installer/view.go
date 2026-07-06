@@ -20,8 +20,6 @@ func (m model) View() string {
 		return m.viewSelect()
 	case screenConflicts:
 		return m.viewConflicts()
-	case screenPickTemplate:
-		return m.viewPickTemplate()
 	case screenFlavorForm:
 		return m.form.view()
 	case screenNameFlavor:
@@ -81,16 +79,20 @@ func (m model) viewSelect() string {
 		if i == m.cursor {
 			cursor = activeStyle.Render("▸ ")
 		}
-		if r.kind == rowAddFlavor {
-			if lastLabel != "Flavors" {
-				b.WriteString(groupStyle.Render("Flavors") + "\n")
-				lastLabel = "Flavors"
+		if r.kind == rowTemplate {
+			if lastLabel != "Add New Flavor" {
+				b.WriteString(groupStyle.Render("Add New Flavor") + "\n")
+				lastLabel = "Add New Flavor"
 			}
-			label := "＋ Add new flavor"
+			name := r.tpl.Name
+			hint := fmt.Sprintf("  %d options", len(r.tpl.Schema.Options))
+			if r.tpl.Target == "mcp" {
+				hint += " · mcp"
+			}
 			if i == m.cursor {
-				label = activeStyle.Render(label)
+				name = activeStyle.Render(name)
 			}
-			b.WriteString(fmt.Sprintf("%s%s\n", cursor, label))
+			b.WriteString(fmt.Sprintf("%s%s%s\n", cursor, name, dimStyle.Render(hint)))
 			continue
 		}
 
@@ -116,8 +118,8 @@ func (m model) viewSelect() string {
 	if m.flash != "" {
 		b.WriteString("\n" + warnStyle.Render(m.flash) + "\n")
 	}
-	b.WriteString(helpStyle.Render("↑/↓ move · space toggle/add · a all · e edit · u update · d delete · enter apply · esc back") + "\n")
-	b.WriteString(dimStyle.Render("checked = install · uncheck an installed item to uninstall"))
+	b.WriteString(helpStyle.Render("↑/↓ move · space toggle · enter apply · a all · e edit · u update · d delete · esc back") + "\n")
+	b.WriteString(dimStyle.Render("checked = install · uncheck an installed item to uninstall · pick under Add New Flavor to create one"))
 	return b.String() + "\n"
 }
 
@@ -141,27 +143,6 @@ func (m model) rowTags(c Component) string {
 		return ""
 	}
 	return "  " + strings.Join(tags, "  ")
-}
-
-func (m model) viewPickTemplate() string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("Add new flavor") + "\n")
-	b.WriteString(dimStyle.Render("pick a flavorable skill to configure") + "\n\n")
-	for i, t := range m.templates {
-		cursor := "  "
-		name := t.Name
-		if i == m.pickCursor {
-			cursor = activeStyle.Render("▸ ")
-			name = activeStyle.Render(name)
-		}
-		desc := ""
-		if t.Schema != nil {
-			desc = dimStyle.Render(fmt.Sprintf("  %d options", len(t.Schema.Options)))
-		}
-		b.WriteString(fmt.Sprintf("%s%s%s\n", cursor, name, desc))
-	}
-	b.WriteString(helpStyle.Render("↑/↓ move · enter configure · esc back"))
-	return b.String() + "\n"
 }
 
 func (m model) viewNameFlavor() string {
