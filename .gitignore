@@ -20,6 +20,10 @@ build/
 *.so
 *.dylib
 
+# Installer binaries (go build output)
+installer/myagent-install
+installer/installer
+
 # Dependencies
 node_modules/
 vendor/
