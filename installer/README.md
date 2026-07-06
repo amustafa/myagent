@@ -19,7 +19,14 @@ nearest `.claude/`. Override with `-source /path/to/repo`.
 
 ```bash
 go run . -list      # print discovered components, no TUI
+go run . -status    # print a read-only report of install state, no TUI
 ```
+
+`-status` reads the install store (not the repo): it lists every environment's
+reconciled manifest — each target path with its installed instances grouped by
+kind (symlink / flavored / mcp) and install time — then the flavor registry,
+flagging any flavor whose frozen commit has drifted from the source's current
+commit as `update available`.
 
 ## Flow
 
