@@ -8,13 +8,23 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// defaultSource is baked in at build time via
+// -ldflags "-X main.defaultSource=<repo>" (see `make install`). It lets an
+// installed `myagent` binary install *from* the repo it was built from,
+// regardless of the working directory. `go run` leaves it empty and falls back
+// to walking up from the cwd.
+var defaultSource string
+
 func main() {
-	source := flag.String("source", "", "path to the repo whose .claude/ to install from (default: auto-detect from cwd upward)")
+	source := flag.String("source", "", "path to the repo whose .claude/ to install from (default: the repo this binary was built from, else auto-detect from cwd)")
 	list := flag.Bool("list", false, "print the discovered components and exit (no TUI)")
 	status := flag.Bool("status", false, "print a read-only report of install state and exit (no TUI)")
 	flag.Parse()
 
 	start := *source
+	if start == "" {
+		start = defaultSource // baked at install time; empty under `go run`
+	}
 	if start == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
