@@ -11,6 +11,7 @@ import (
 func main() {
 	source := flag.String("source", "", "path to the repo whose .claude/ to install from (default: auto-detect from cwd upward)")
 	list := flag.Bool("list", false, "print the discovered components and exit (no TUI)")
+	status := flag.Bool("status", false, "print a read-only report of install state and exit (no TUI)")
 	flag.Parse()
 
 	start := *source
@@ -27,6 +28,13 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "could not find a .claude/ directory at or above", start)
 		os.Exit(1)
+	}
+
+	// -status reports install state from the store, independent of what the
+	// source repo currently offers, so it short-circuits before the scan.
+	if *status {
+		writeStatus(os.Stdout, sourceClaude)
+		return
 	}
 
 	comps, err := scanComponents(sourceClaude)
