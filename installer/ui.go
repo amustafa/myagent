@@ -220,7 +220,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateScope(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "left", "right", "tab", "h", "l":
+	case "left", "right", "up", "down", "tab", "h", "l", "j", "k":
 		m.scope = 1 - m.scope
 	case "enter":
 		if m.scope == 0 { // global
@@ -306,16 +306,27 @@ func (m model) updateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.selected[c.RelPath] = all
 		}
 	case "u":
-		if row.kind == rowComponent && row.comp.Flavor != nil && m.updated[row.comp.RelPath] {
+		switch {
+		case row.kind == rowComponent && row.comp.Flavor != nil && m.updated[row.comp.RelPath]:
 			return m.doUpdate(*row.comp.Flavor)
+		case row.kind == rowComponent && row.comp.Flavor != nil:
+			m.flash = row.comp.Flavor.Name + " is already at the current version — nothing to update"
+		case row.kind == rowTemplate:
+			m.flash = "u updates a created flavor — press enter here to create one first"
 		}
 	case "e":
-		if row.kind == rowComponent && row.comp.Flavor != nil {
+		switch {
+		case row.kind == rowComponent && row.comp.Flavor != nil:
 			return m.beginEdit(*row.comp.Flavor)
+		case row.kind == rowTemplate:
+			m.flash = "e edits a created flavor — press enter here to create one from this template"
 		}
 	case "d":
-		if row.kind == rowComponent && row.comp.Flavor != nil {
+		switch {
+		case row.kind == rowComponent && row.comp.Flavor != nil:
 			return m.doDelete(row.comp.Flavor.Name)
+		case row.kind == rowTemplate:
+			m.flash = "d deletes a created flavor — templates come from the repo and can't be deleted here"
 		}
 	case "esc":
 		m.screen = screenScope
