@@ -11,7 +11,7 @@ import (
 func (m model) View() string {
 	// A few screens render their own inline errors; only bail out globally for
 	// unexpected ones.
-	if m.err != nil && m.screen != screenDir && m.screen != screenNameFlavor {
+	if m.err != nil && m.screen != screenDir {
 		return fmt.Sprintf("error: %v\n", m.err)
 	}
 	switch m.screen {
@@ -25,8 +25,6 @@ func (m model) View() string {
 		return m.viewConflicts()
 	case screenFlavorForm:
 		return m.form.view()
-	case screenNameFlavor:
-		return m.viewNameFlavor()
 	case screenDone:
 		return m.viewDone()
 	}
@@ -248,19 +246,6 @@ func (m model) rowTags(c Component) string {
 		return ""
 	}
 	return "  " + strings.Join(tags, "  ")
-}
-
-func (m model) viewNameFlavor() string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("Name this flavor") + "\n\n")
-	b.WriteString(dimStyle.Render(fmt.Sprintf("a named recipe from the %q template — must be unique", m.pendingTpl.Name)) + "\n")
-	b.WriteString(dimStyle.Render("this becomes the installed skill's name.") + "\n\n")
-	b.WriteString(m.nameInput.View() + "\n")
-	if m.err != nil {
-		b.WriteString(warnStyle.Render(m.err.Error()) + "\n")
-	}
-	b.WriteString(helpStyle.Render("enter → configure options · esc cancel · ctrl+c quit"))
-	return b.String() + "\n"
 }
 
 func (m model) viewConflicts() string {
