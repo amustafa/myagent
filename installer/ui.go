@@ -71,11 +71,12 @@ type model struct {
 
 	targetClaude string
 
-	// flavor-create flow
-	form       flavorForm
-	pickCursor int
-	pendingTpl Template
-	nameInput  textinput.Model
+	// flavor-create / edit flow
+	form        flavorForm
+	pickCursor  int
+	pendingTpl  Template
+	nameInput   textinput.Model
+	editingInst *FlavorInstance // non-nil when editing an existing flavor's choices
 
 	plan          []planItem
 	conflictQueue []int
@@ -289,6 +290,10 @@ func (m model) updateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if row.kind == rowComponent && row.comp.Flavor != nil && m.updated[row.comp.RelPath] {
 			return m.doUpdate(*row.comp.Flavor)
 		}
+	case "e":
+		if row.kind == rowComponent && row.comp.Flavor != nil {
+			return m.beginEdit(*row.comp.Flavor)
+		}
 	case "d":
 		if row.kind == rowComponent && row.comp.Flavor != nil {
 			return m.doDelete(row.comp.Flavor.Name)
@@ -342,8 +347,12 @@ func (m model) updateFlavorForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.form, cmd, res = m.form.update(msg)
 	switch res {
 	case frCancel:
+		m.editingInst = nil
 		m.screen = screenSelect
 	case frSubmit:
+		if m.editingInst != nil {
+			return m.doEditSubmit()
+		}
 		m.nameInput.SetValue(m.pendingTpl.Name)
 		m.nameInput.CursorEnd()
 		m.nameInput.Focus()
@@ -352,6 +361,55 @@ func (m model) updateFlavorForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	}
 	return m, cmd
+}
+
+// templateFor finds the flavor template that produced (or could re-render) a
+// given source skill.
+func (m model) templateFor(skill string) (Template, bool) {
+	for _, t := range m.templates {
+		if t.Name == skill {
+			return t, true
+		}
+	}
+	return Template{}, false
+}
+
+// beginEdit re-opens the flavor form pre-filled with a flavor's saved choices so
+// they can be changed and re-rendered.
+func (m model) beginEdit(inst FlavorInstance) (tea.Model, tea.Cmd) {
+	tpl, ok := m.templateFor(inst.Meta.Skill)
+	if !ok {
+		m.flash = "cannot edit: source skill " + inst.Meta.Skill + " isn't available here"
+		return m, nil
+	}
+	cp := inst
+	m.pendingTpl = tpl
+	m.editingInst = &cp
+	m.form = newFlavorForm(tpl.Schema, inst.Input)
+	m.err = nil
+	m.screen = screenFlavorForm
+	return m, nil
+}
+
+// doEditSubmit re-renders the edited flavor with the new choices in place.
+func (m model) doEditSubmit() (tea.Model, tea.Cmd) {
+	updated, err := editFlavor(*m.editingInst, m.pendingTpl.Dir, m.form.values, m.commit)
+	m.editingInst = nil
+	if err != nil {
+		m.flash = "edit failed: " + err.Error()
+		m.screen = screenSelect
+		return m, nil
+	}
+	rel := updated.asComponent().RelPath
+	if m.installed[rel] { // keep the manifest's recorded commit fresh
+		m.recordFlavor(updated.asComponent(), updated)
+		_ = m.manifest.save()
+	}
+	m.flavors = listFlavors()
+	m.refresh()
+	m.flash = "updated flavor " + updated.Name + " with new choices"
+	m.screen = screenSelect
+	return m, nil
 }
 
 func (m model) updateNameFlavor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -406,7 +464,17 @@ func (m model) doUpdate(inst FlavorInstance) (tea.Model, tea.Cmd) {
 func (m model) doDelete(name string) (tea.Model, tea.Cmd) {
 	if m.pendingDelete != name {
 		m.pendingDelete = name
-		m.flash = "press d again to delete flavor " + name
+		others := 0
+		for _, t := range environmentsUsingFlavor(name) {
+			if t != m.targetClaude {
+				others++
+			}
+		}
+		warn := ""
+		if others > 0 {
+			warn = fmt.Sprintf(" — WARNING: also installed in %d other environment(s), which will be left with dangling links", others)
+		}
+		m.flash = "press d again to delete flavor " + name + warn
 		return m, nil
 	}
 	m.pendingDelete = ""

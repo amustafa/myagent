@@ -20,11 +20,16 @@ import (
 // Environments symlink rendered/ into <target>/.claude/skills/<instance>/, so
 // regenerating rendered/ in place updates every environment that links it.
 
+// mcpRenderedFile is the file an MCP flavor template's install.py must write
+// into --dest: the server object as it appears inside "mcpServers".
+const mcpRenderedFile = "server.json"
+
 // FlavorMeta is the provenance recorded for a generated flavor.
 type FlavorMeta struct {
-	Skill     string `json:"skill"`  // source skill name, e.g. "orchestrate"
-	Source    string `json:"source"` // absolute source skill dir at create time
-	Commit    string `json:"commit"` // source repo commit the render was frozen at
+	Skill     string `json:"skill"`            // source template name, e.g. "orchestrate"
+	Target    string `json:"target,omitempty"` // "skill" (default) or "mcp"
+	Source    string `json:"source"`           // absolute source template dir at create time
+	Commit    string `json:"commit"`           // source repo commit the render was frozen at
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at,omitempty"`
 }
@@ -40,10 +45,23 @@ type FlavorInstance struct {
 // Rendered is the directory holding the resolved skill for this instance.
 func (f FlavorInstance) Rendered() string { return filepath.Join(f.Dir, "rendered") }
 
-// asComponent presents a flavor instance as an installable Component: it links
-// into the target's skills/<name> from the registry render dir.
+// asComponent presents a flavor instance as an installable Component. A skill
+// flavor symlinks its rendered dir into skills/<name>; an MCP flavor points at
+// the single rendered server.json and installs through the MCP merge path
+// (routed by Type == "mcp" in classifyComponent/applyComponent).
 func (f FlavorInstance) asComponent() Component {
 	inst := f
+	if f.Meta.Target == "mcp" {
+		return Component{
+			Type:    "mcp",
+			Label:   "MCP Servers",
+			Name:    f.Name + ".json",
+			Source:  filepath.Join(f.Rendered(), mcpRenderedFile),
+			RelPath: filepath.Join("mcp", f.Name+".json"),
+			IsDir:   false,
+			Flavor:  &inst,
+		}
+	}
 	return Component{
 		Type:    "flavors",
 		Label:   "Flavors",
@@ -103,6 +121,39 @@ func flavorExists(name string) bool {
 	return err == nil
 }
 
+// environmentsUsingFlavor returns the target paths of every environment whose
+// manifest still records an install of the named flavor. Deleting a flavor from
+// the global registry would leave those environments with dangling symlinks, so
+// the TUI warns about them first.
+func environmentsUsingFlavor(name string) []string {
+	envRoot := filepath.Join(configBaseDir(), "environments")
+	entries, err := os.ReadDir(envRoot)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(envRoot, e.Name(), "installed.json"))
+		if err != nil {
+			continue
+		}
+		var man Manifest
+		if json.Unmarshal(data, &man) != nil {
+			continue
+		}
+		for _, rec := range man.Instances {
+			if rec.Kind == "flavored" && rec.Options["flavor"] == name {
+				out = append(out, man.Target)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // createFlavor generates a new flavor: renders via the template's install.py and
 // writes input.json + meta.json. It does not install into any environment.
 func createFlavor(tpl Template, name string, input map[string]any, commit string) (FlavorInstance, error) {
@@ -116,7 +167,8 @@ func createFlavor(tpl Template, name string, input map[string]any, commit string
 	inst := FlavorInstance{
 		Name: name, Dir: dir, Input: input,
 		Meta: FlavorMeta{
-			Skill: tpl.Name, Source: tpl.Dir, Commit: commit, CreatedAt: nowStamp(),
+			Skill: tpl.Name, Target: tpl.Target, Source: tpl.Dir,
+			Commit: commit, CreatedAt: nowStamp(),
 		},
 	}
 	if err := renderFlavor(tpl.Dir, inst); err != nil {
@@ -135,6 +187,22 @@ func createFlavor(tpl Template, name string, input map[string]any, commit string
 // pick up the change automatically.
 func updateFlavor(inst FlavorInstance, commit string) (FlavorInstance, error) {
 	if err := renderFlavor(inst.Meta.Source, inst); err != nil {
+		return inst, err
+	}
+	inst.Meta.Commit = commit
+	inst.Meta.UpdatedAt = nowStamp()
+	if err := writeFlavorFiles(inst); err != nil {
+		return inst, err
+	}
+	return inst, nil
+}
+
+// editFlavor re-renders an existing flavor with *new* option values (vs
+// updateFlavor, which re-renders the same saved input against new skill code).
+// It stamps the current commit since the render reflects the current source.
+func editFlavor(inst FlavorInstance, skillDir string, input map[string]any, commit string) (FlavorInstance, error) {
+	inst.Input = input
+	if err := renderFlavor(skillDir, inst); err != nil {
 		return inst, err
 	}
 	inst.Meta.Commit = commit

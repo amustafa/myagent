@@ -1,0 +1,20 @@
+{
+  "flavor": "github-mcp",
+  "version": 1,
+  "options": [
+    {
+      "key": "token_env",
+      "label": "Env var holding your GitHub token",
+      "type": "enum-or-custom",
+      "help": "Referenced as ${VAR} in the config — the secret itself is never stored.",
+      "enum": ["GITHUB_TOKEN", "GITHUB_PAT", "GH_TOKEN"],
+      "default": "GITHUB_TOKEN"
+    },
+    {
+      "key": "readonly",
+      "label": "Read-only (omit write tools)",
+      "type": "bool",
+      "default": true
+    }
+  ]
+}

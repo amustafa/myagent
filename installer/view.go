@@ -116,7 +116,7 @@ func (m model) viewSelect() string {
 	if m.flash != "" {
 		b.WriteString("\n" + warnStyle.Render(m.flash) + "\n")
 	}
-	b.WriteString(helpStyle.Render("↑/↓ move · space toggle/add · a all · u update · d delete · enter apply · esc back") + "\n")
+	b.WriteString(helpStyle.Render("↑/↓ move · space toggle/add · a all · e edit · u update · d delete · enter apply · esc back") + "\n")
 	b.WriteString(dimStyle.Render("checked = install · uncheck an installed item to uninstall"))
 	return b.String() + "\n"
 }
