@@ -40,3 +40,6 @@ __pycache__/
 
 # Stackr
 .worktrees
+
+# Claude Code agent worktrees
+.claude/worktrees/

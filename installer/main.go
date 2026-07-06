@@ -46,7 +46,11 @@ func main() {
 			fmt.Printf("  %-10s %s\n", c.Type, c.Name)
 		}
 		for _, t := range templates {
-			fmt.Printf("  %-10s %s (flavorable)\n", "skills", t.Name)
+			label := "skills"
+			if t.Target == "mcp" {
+				label = "mcp"
+			}
+			fmt.Printf("  %-10s %s (flavorable)\n", label, t.Name)
 		}
 		return
 	}

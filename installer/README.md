@@ -91,7 +91,22 @@ into named flavors via `＋ Add new flavor`:
    installed/uninstalled into the current environment like any other component
    (a symlink from `rendered/` into `<target>/.claude/skills/<name>/`).
 
-Per-flavor row actions: `space` install/uninstall · `u` update · `d` delete.
+Per-flavor row actions: `space` install/uninstall · `e` edit · `u` update · `d` delete.
+
+- **`e` edit** re-opens the form pre-filled with the flavor's saved choices; on
+  submit it re-renders the flavor in place with the new values.
+- **`d` delete** removes the flavor from the registry (and unlinks it from the
+  current environment). If other environments still link it, the confirm prompt
+  warns you first — they'd be left with dangling links until their next reconcile.
+
+### Flavoring an MCP server
+
+MCP servers can be flavored too. A flavorable MCP template is a directory
+`.claude/mcp/<name>/` holding `flavor.json` + `install.py`, where `install.py`
+writes a single `server.json` (the `mcpServers` entry) into `--dest`. The
+generated flavor installs through the MCP **merge** path (into `.mcp.json` or
+`~/.claude.json`) instead of a symlink. The bundled `.claude/mcp/github/` example
+lets you pick the token env-var and toggle read-only.
 
 ### Option types
 

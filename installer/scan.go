@@ -43,13 +43,15 @@ type Component struct {
 	Flavor *FlavorInstance
 }
 
-// Template is a flavorable source skill: one that ships install.py + flavor.json.
-// Templates never install directly — they seed generated flavors via the
-// "Add new flavor" flow.
+// Template is a flavorable source component: one that ships install.py +
+// flavor.json. Templates never install directly — they seed generated flavors
+// via the "Add new flavor" flow. Target is "skill" (a directory symlinked into
+// skills/) or "mcp" (a rendered server.json merged into the MCP config).
 type Template struct {
 	Name   string
-	Dir    string        // absolute source skill dir
+	Dir    string        // absolute source template dir
 	Schema *FlavorSchema // parsed flavor.json
+	Target string        // "skill" | "mcp"
 }
 
 // isFlavorable reports whether a skill directory carries both the render script
@@ -60,29 +62,34 @@ func isFlavorable(dir string) bool {
 	return e1 == nil && e2 == nil
 }
 
-// scanTemplates finds flavorable source skills (those shipping install.py +
-// flavor.json) and parses their schemas. A skill whose schema fails to parse is
-// skipped rather than aborting the whole scan.
+// scanTemplates finds flavorable source components (those shipping install.py +
+// flavor.json) under skills/ and mcp/, parsing their schemas. A component whose
+// schema fails to parse is skipped rather than aborting the whole scan.
 func scanTemplates(sourceClaude string) ([]Template, error) {
-	skillsDir := filepath.Join(sourceClaude, "skills")
-	entries, err := os.ReadDir(skillsDir)
-	if err != nil {
-		return nil, nil // no skills dir — no templates
+	kinds := []struct{ dir, target string }{
+		{"skills", "skill"},
+		{"mcp", "mcp"},
 	}
 	var out []Template
-	for _, e := range entries {
-		if !e.IsDir() || e.Name()[0] == '.' {
-			continue
-		}
-		dir := filepath.Join(skillsDir, e.Name())
-		if !isFlavorable(dir) {
-			continue
-		}
-		schema, err := parseFlavorSchema(dir)
+	for _, k := range kinds {
+		entries, err := os.ReadDir(filepath.Join(sourceClaude, k.dir))
 		if err != nil {
 			continue
 		}
-		out = append(out, Template{Name: e.Name(), Dir: dir, Schema: schema})
+		for _, e := range entries {
+			if !e.IsDir() || e.Name()[0] == '.' {
+				continue
+			}
+			dir := filepath.Join(sourceClaude, k.dir, e.Name())
+			if !isFlavorable(dir) {
+				continue
+			}
+			schema, err := parseFlavorSchema(dir)
+			if err != nil {
+				continue
+			}
+			out = append(out, Template{Name: e.Name(), Dir: dir, Schema: schema, Target: k.target})
+		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
