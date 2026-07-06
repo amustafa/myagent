@@ -24,6 +24,9 @@ build/
 installer/myagent-install
 installer/installer
 
+# Orchestrate pipeline runtime state (specs, reviews, memory, backlog)
+.orchestrate/
+
 # Dependencies
 node_modules/
 vendor/

@@ -7,6 +7,8 @@ plus a TUI to install them into any project or globally.
 
 ```
 .claude/skills/     Claude Code skills (the reusable components)
+.claude/agents/     subagents used by the orchestrate pipeline
+.claude/commands/   slash-command entrypoints (e.g. /orchestrate)
 installer/          Charm/Bubble Tea TUI that symlinks components into place
 Makefile            top-level tasks (run / list / build / test)
 ```
@@ -17,6 +19,7 @@ Makefile            top-level tasks (run / list / build / test)
 |-------|--------------|
 | `grill-me` | Grilling session that stress-tests a plan against the existing domain model, sharpens terminology, and updates docs (`UBIQUITOUS_LANGUAGE.md`, ADRs) inline as decisions crystallise. |
 | `compact-smart` | Prepares a session-scoped, coding-aware compaction directive for continuing long-running work across milestones — use before `/compact`. |
+| `orchestrate` | Turns the session into a **Manager** (Opus) driving a resumable spec → review → build → review → integrate pipeline across subagents (`architect`, `builder`, `spec-preflight`, `code-preflight`) with optional Codex as an external gating reviewer. Run `/orchestrate`. Runtime state lives under `.orchestrate/` (gitignored). |
 
 ## Installer
 
