@@ -34,7 +34,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "scan failed:", err)
 		os.Exit(1)
 	}
-	if len(comps) == 0 {
+	templates, _ := scanTemplates(sourceClaude)
+	if len(comps) == 0 && len(templates) == 0 {
 		fmt.Fprintln(os.Stderr, "no installable components found under", sourceClaude)
 		os.Exit(1)
 	}
@@ -44,10 +45,13 @@ func main() {
 		for _, c := range comps {
 			fmt.Printf("  %-10s %s\n", c.Type, c.Name)
 		}
+		for _, t := range templates {
+			fmt.Printf("  %-10s %s (flavorable)\n", "skills", t.Name)
+		}
 		return
 	}
 
-	m := newModel(sourceClaude, comps)
+	m := newModel(sourceClaude, comps, templates)
 	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "tui error:", err)
 		os.Exit(1)

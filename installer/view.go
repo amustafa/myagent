@@ -6,7 +6,9 @@ import (
 )
 
 func (m model) View() string {
-	if m.err != nil && m.screen != screenDir {
+	// A few screens render their own inline errors; only bail out globally for
+	// unexpected ones.
+	if m.err != nil && m.screen != screenDir && m.screen != screenNameFlavor {
 		return fmt.Sprintf("error: %v\n", m.err)
 	}
 	switch m.screen {
@@ -18,6 +20,12 @@ func (m model) View() string {
 		return m.viewSelect()
 	case screenConflicts:
 		return m.viewConflicts()
+	case screenPickTemplate:
+		return m.viewPickTemplate()
+	case screenFlavorForm:
+		return m.form.view()
+	case screenNameFlavor:
+		return m.viewNameFlavor()
 	case screenDone:
 		return m.viewDone()
 	}
@@ -68,34 +76,100 @@ func (m model) viewSelect() string {
 	b.WriteString(dimStyle.Render("into "+m.targetClaude) + "\n")
 
 	lastLabel := ""
-	for i, c := range m.comps {
-		if c.Label != lastLabel {
-			b.WriteString(groupStyle.Render(c.Label) + "\n")
-			lastLabel = c.Label
-		}
+	for i, r := range m.rows {
 		cursor := "  "
 		if i == m.cursor {
 			cursor = activeStyle.Render("▸ ")
 		}
+		if r.kind == rowAddFlavor {
+			if lastLabel != "Flavors" {
+				b.WriteString(groupStyle.Render("Flavors") + "\n")
+				lastLabel = "Flavors"
+			}
+			label := "＋ Add new flavor"
+			if i == m.cursor {
+				label = activeStyle.Render(label)
+			}
+			b.WriteString(fmt.Sprintf("%s%s\n", cursor, label))
+			continue
+		}
+
+		c := r.comp
+		if c.Label != lastLabel {
+			b.WriteString(groupStyle.Render(c.Label) + "\n")
+			lastLabel = c.Label
+		}
 		check := "[ ]"
-		if m.selected[i] {
+		if m.selected[c.RelPath] {
 			check = okStyle.Render("[x]")
 		}
 		name := c.Name
 		if i == m.cursor {
 			name = activeStyle.Render(name)
 		}
-		tag := ""
-		if m.installed[i] {
-			tag = "  " + okStyle.Render("● installed")
-			if !m.selected[i] {
-				tag = "  " + warnStyle.Render("● installed → will uninstall")
-			}
-		}
-		b.WriteString(fmt.Sprintf("%s%s %s%s\n", cursor, check, name, tag))
+		b.WriteString(fmt.Sprintf("%s%s %s%s\n", cursor, check, name, m.rowTags(c)))
 	}
-	b.WriteString(helpStyle.Render("↑/↓ move · space toggle · a all/none · enter apply · esc back") + "\n")
+
+	if m.flash != "" {
+		b.WriteString("\n" + warnStyle.Render(m.flash) + "\n")
+	}
+	b.WriteString(helpStyle.Render("↑/↓ move · space toggle/add · a all · u update · d delete · enter apply · esc back") + "\n")
 	b.WriteString(dimStyle.Render("checked = install · uncheck an installed item to uninstall"))
+	return b.String() + "\n"
+}
+
+// rowTags renders the trailing status tags for a component row.
+func (m model) rowTags(c Component) string {
+	var tags []string
+	if c.Flavor != nil {
+		tags = append(tags, dimStyle.Render("flavored"))
+	}
+	if m.installed[c.RelPath] {
+		if m.selected[c.RelPath] {
+			tags = append(tags, okStyle.Render("● installed"))
+		} else {
+			tags = append(tags, warnStyle.Render("● installed → will uninstall"))
+		}
+	}
+	if c.Flavor != nil && m.updated[c.RelPath] {
+		tags = append(tags, warnStyle.Render("update available"))
+	}
+	if len(tags) == 0 {
+		return ""
+	}
+	return "  " + strings.Join(tags, "  ")
+}
+
+func (m model) viewPickTemplate() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Add new flavor") + "\n")
+	b.WriteString(dimStyle.Render("pick a flavorable skill to configure") + "\n\n")
+	for i, t := range m.templates {
+		cursor := "  "
+		name := t.Name
+		if i == m.pickCursor {
+			cursor = activeStyle.Render("▸ ")
+			name = activeStyle.Render(name)
+		}
+		desc := ""
+		if t.Schema != nil {
+			desc = dimStyle.Render(fmt.Sprintf("  %d options", len(t.Schema.Options)))
+		}
+		b.WriteString(fmt.Sprintf("%s%s%s\n", cursor, name, desc))
+	}
+	b.WriteString(helpStyle.Render("↑/↓ move · enter configure · esc back"))
+	return b.String() + "\n"
+}
+
+func (m model) viewNameFlavor() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Name this flavor") + "\n\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("a named recipe from %q — must be unique", m.pendingTpl.Name)) + "\n\n")
+	b.WriteString(m.nameInput.View() + "\n")
+	if m.err != nil {
+		b.WriteString(warnStyle.Render(m.err.Error()) + "\n")
+	}
+	b.WriteString(helpStyle.Render("enter generate · esc back to form · ctrl+c quit"))
 	return b.String() + "\n"
 }
 

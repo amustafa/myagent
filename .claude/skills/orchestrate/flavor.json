@@ -1,0 +1,56 @@
+{
+  "flavor": "orchestrate",
+  "version": 1,
+  "options": [
+    {
+      "key": "models.primary",
+      "label": "Primary model (Manager/Builder/preflight tier, fallback order)",
+      "type": "enum-list",
+      "help": "First entry is the working model; the rest are fallbacks in order.",
+      "enum": ["claude-opus-4-8", "claude-sonnet-5", "claude-fable-5", "gpt-5-codex-max"],
+      "default": ["claude-opus-4-8", "claude-sonnet-5"],
+      "required": true
+    },
+    {
+      "key": "models.secondary",
+      "label": "Secondary model (Architect tier, fallback order)",
+      "type": "enum-list",
+      "enum": ["claude-fable-5", "claude-sonnet-5", "claude-haiku-4-5"],
+      "default": ["claude-fable-5", "claude-sonnet-5"],
+      "required": true
+    },
+    {
+      "key": "use_codex",
+      "label": "Gate reviews on the external Codex reviewer",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "key": "codex_model",
+      "label": "Codex model",
+      "type": "enum-or-custom",
+      "help": "Only used when Codex gating is on.",
+      "enum": ["gpt-5-codex-max", "gpt-5-codex"],
+      "default": "gpt-5-codex-max",
+      "showIf": { "use_codex": true }
+    },
+    {
+      "key": "test_cmd",
+      "label": "Test command (run at integration)",
+      "type": "string",
+      "placeholder": "pytest -q"
+    },
+    {
+      "key": "primary_branch",
+      "label": "Branch the Manager merges into",
+      "type": "string",
+      "default": "main"
+    },
+    {
+      "key": "auto_advance_to_build",
+      "label": "Skip the approval gate after the spec (auto-advance to build)",
+      "type": "bool",
+      "default": false
+    }
+  ]
+}

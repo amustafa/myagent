@@ -11,10 +11,10 @@ import (
 type destState int
 
 const (
-	destFree         destState = iota // nothing there — clean install
-	destLinkedToUs                    // symlink already pointing at our source (installed)
-	destLinkedElse                    // symlink pointing somewhere else
-	destOccupied                      // a real file or directory
+	destFree       destState = iota // nothing there — clean install
+	destLinkedToUs                  // symlink already pointing at our source (installed)
+	destLinkedElse                  // symlink pointing somewhere else
+	destOccupied                    // a real file or directory
 )
 
 // resolution is the action chosen for a single component at install time.
@@ -22,10 +22,10 @@ type resolution int
 
 const (
 	resInstall   resolution = iota // create the symlink (dest is free)
-	resSkip                         // leave the destination untouched
-	resOverwrite                    // delete whatever is there, then symlink
-	resBackup                       // rename existing to .bak-N, then symlink
-	resRemove                       // delete our existing symlink (uninstall)
+	resSkip                        // leave the destination untouched
+	resOverwrite                   // delete whatever is there, then symlink
+	resBackup                      // rename existing to .bak-N, then symlink
+	resRemove                      // delete our existing symlink (uninstall)
 )
 
 // destPath returns the absolute destination for a component under a target
