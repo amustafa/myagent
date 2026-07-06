@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // The flavor registry is global (a recipe is environment-independent):
@@ -250,7 +251,31 @@ func renderFlavor(skillDir string, inst FlavorInstance) error {
 	}
 	final := inst.Rendered()
 	os.RemoveAll(final)
-	return os.Rename(tmp, final)
+	if err := os.Rename(tmp, final); err != nil {
+		return err
+	}
+	// A flavor is a distinctly-named skill: stamp the instance name into the
+	// rendered SKILL.md frontmatter so sibling flavors of the same template don't
+	// collide on the skill name. No-op for renders without a SKILL.md (e.g. MCP).
+	setSkillName(final, inst.Name)
+	return nil
+}
+
+// setSkillName rewrites the first `name:` line in dir/SKILL.md to name.
+func setSkillName(dir, name string) {
+	p := filepath.Join(dir, "SKILL.md")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	for i, ln := range lines {
+		if strings.HasPrefix(ln, "name:") {
+			lines[i] = "name: " + name
+			break
+		}
+	}
+	_ = os.WriteFile(p, []byte(strings.Join(lines, "\n")), 0o644)
 }
 
 func writeFlavorFiles(inst FlavorInstance) error {
