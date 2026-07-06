@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -90,6 +91,38 @@ func TestFlavorLifecycle(t *testing.T) {
 	}
 	if len(listFlavors()) != 0 {
 		t.Error("flavor not deleted")
+	}
+}
+
+func TestFlavorStampsSkillName(t *testing.T) {
+	t.Setenv("MYAGENTCFG_DIR", t.TempDir())
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, flavorSchemaFile), `{"flavor":"base","version":1,"options":[]}`)
+	mustWrite(t, filepath.Join(dir, flavorRenderFile), `import argparse, os
+ap = argparse.ArgumentParser(); ap.add_argument("--dest", required=True)
+a = ap.parse_args()
+os.makedirs(a.dest, exist_ok=True)
+open(os.path.join(a.dest, "SKILL.md"), "w").write("---\nname: base\ndescription: d\n---\nbody\n")
+`)
+	schema, err := parseFlavorSchema(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := Template{Name: "base", Dir: dir, Schema: schema}
+
+	inst, err := createFlavor(tpl, "base-fast", nil, "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(inst.Rendered(), "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "name: base-fast") {
+		t.Errorf("flavor name not stamped into SKILL.md:\n%s", data)
+	}
+	if strings.Contains(string(data), "name: base\n") {
+		t.Errorf("template name still present in SKILL.md:\n%s", data)
 	}
 }
 

@@ -98,6 +98,10 @@ into named flavors via `＋ Add new flavor`:
    installed/uninstalled into the current environment like any other component
    (a symlink from `rendered/` into `<target>/.claude/skills/<name>/`).
 
+The flavor's name becomes the created skill's name: after rendering, the
+installer stamps `<name>` into the rendered `SKILL.md` frontmatter, so sibling
+flavors of the same template are distinct, non-colliding skills.
+
 Per-flavor row actions: `space` install/uninstall · `e` edit · `u` update · `d` delete.
 
 - **`e` edit** re-opens the form pre-filled with the flavor's saved choices; on
