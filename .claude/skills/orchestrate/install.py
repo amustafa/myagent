@@ -24,24 +24,38 @@ IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store")
 
 
 def resolve_config(opts):
-    """Map flavor option values onto orch.py's config shape."""
-    primary = opts.get("models.primary") or ["claude-opus-4-8"]
-    secondary = opts.get("models.secondary") or ["claude-fable-5"]
-    p0, s0 = primary[0], secondary[0]
+    """Map flavor option values onto orch.py's config shape.
+
+    Config is organized by capability TIER, not by named role, so one knob covers
+    everyone at that level:
+      - staff (fable) — Manager + Architect: long-running, unsupervised, taste-heavy.
+      - senior (opus) — Builder + structure/spec-conformance preflight.
+      - junior (sonnet) — simple tasks + the codex-runner wrapper.
+      - reviewer (gpt-5.5) — cross-model correctness review, OUTSIDE the Claude
+        hierarchy, via `codex review`.
+      - mechanical (gpt-5.5) — computer-use + bulk work via the Codex CLI.
+    staff/senior/junior are ordered fallback lists (fall UP when unavailable);
+    reviewer/mechanical are single codex-model values.
+    """
+    staff = opts.get("models.staff") or ["claude-fable-5"]
+    senior = opts.get("models.senior") or ["claude-opus-4-8"]
+    junior = opts.get("models.junior") or ["claude-sonnet-5"]
+    use_codex = bool(opts.get("use_codex", True))
+    reviewer = opts.get("models.reviewer", "gpt-5-codex-max")
+    mechanical = opts.get("models.mechanical", "gpt-5-codex-max")
     cfg = {
-        # per-role models: primary tier drives everything except the architect
         "models": {
-            "manager": p0,
-            "builder": p0,
-            "spec_preflight": p0,
-            "code_preflight": p0,
-            "architect": s0,
+            "staff": staff[0],
+            "senior": senior[0],
+            "junior": junior[0],
+            "reviewer": reviewer if use_codex else "",
+            "mechanical": mechanical,
         },
-        # full ordered preference lists, for fallback when a model is unavailable
-        "models_primary": primary,
-        "models_secondary": secondary,
-        "use_codex": bool(opts.get("use_codex", True)),
-        "codex_model": opts.get("codex_model", "") if opts.get("use_codex", True) else "",
+        # full ordered preference lists, for fallback (fall UP when unavailable)
+        "models_staff": staff,
+        "models_senior": senior,
+        "models_junior": junior,
+        "use_codex": use_codex,
         "test_cmd": opts.get("test_cmd", ""),
         "primary_branch": opts.get("primary_branch", "main"),
         "auto_advance_to_build": bool(opts.get("auto_advance_to_build", False)),

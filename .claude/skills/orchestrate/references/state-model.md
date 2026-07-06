@@ -75,8 +75,8 @@ reuse it. Consider exporting a shell var in your first bash call, e.g.
 | `orch.py log <id> "<msg>"` | append a timestamped log entry |
 | `orch.py path <id> [dir\|spec\|reviews\|notes]` | print a path (for use in other commands) |
 | `orch.py config` | print all config |
-| `orch.py config <key>` | print one value |
-| `orch.py config <key> <value>` | set one value (`true`/`false` parsed as bool) |
+| `orch.py config <key>` | print one value (dotted keys index nested dicts, e.g. `models.reviewer`) |
+| `orch.py config <key> <value>` | set one value (`true`/`false` parsed as bool; dotted keys set nested, e.g. `models.senior claude-opus-4-8`) |
 
 Use `orch.py path` to get file locations for `codex`, `git`, and subagent
 delegation messages rather than hand-building paths.
@@ -87,19 +87,25 @@ delegation messages rather than hand-building paths.
 |-----|---------|---------|
 | `auto_advance_to_build` | `false` | if false, stop at the approval gate after spec |
 | `auto_advance_to_integrate` | `true` | if false, pause for human review before integrating |
-| `codex_cmd` | `codex exec --full-auto -s read-only` | base Codex command |
-| `codex_model` | `""` | e.g. `gpt-5-codex-max`; blank uses Codex's default |
+| `use_codex` | `true` | gate reviews on the `reviewer` tier (gpt-5.5 / Codex) when present |
+| `codex_cmd` | `codex exec --full-auto -s read-only` | base Codex command for `codex exec` calls |
 | `test_cmd` | `""` | e.g. `npm test`, `pytest -q`; blank => skip tests (warn) |
 | `primary_branch` | `main` | branch you integrate into |
 | `memory_file` | `.orchestrate/memory.md` | long-term memory |
 | `backlog_file` | `.orchestrate/backlog.md` | backlog / follow-ups |
 | `tracker_file` | `.orchestrate/STATUS.md` | status tracker (auto-generated) |
-| `models.*` | see below | model per role |
+| `models.<tier>` | see below | model per capability tier (`staff`/`senior`/`junior`/`reviewer`/`mechanical`); the `reviewer`/`mechanical` values are the codex model |
 
-Model defaults: manager `opus`, architect `claude-fable-5`,
-spec_preflight `opus`, builder `opus`, code_preflight `opus`. These mirror the
+Models are keyed by **capability tier**, not named role. Tier defaults:
+`staff` `claude-fable-5` (Manager — recommended session model, user's choice — +
+Architect), `senior` `opus` (Builder + structure/spec-conformance preflight),
+`junior` `claude-sonnet-5` (simple tasks + the codex-runner wrapper), `reviewer`
+`gpt-5-codex-max` (gpt-5.5 correctness review via `codex review`, outside the
+Claude hierarchy; blank when `use_codex` is off), `mechanical` `gpt-5-codex-max`
+(gpt-5.5 computer-use + bulk work). The staff/senior/junior defaults mirror the
 agent frontmatter; if you change one, change it in both places
-(`.claude/agents/<role>.md` and here) so they don't drift.
+(`.claude/agents/<role>.md` and here) so they don't drift. Full rule:
+`@prompts/model-selection.md`.
 
 ## Discipline
 

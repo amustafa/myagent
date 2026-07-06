@@ -40,10 +40,28 @@ you orchestrate every review and every Codex call. This keeps one clear state
 machine instead of nested loops you can't see into. (The agent files omit the
 `Agent` tool so they can't nest anyway.)
 
-## Model per role
+## Models by tier
 
-Set in each agent's frontmatter; mirrored in `orch.py config models.*`:
-architect → `claude-fable-5`, everyone else → `opus`. If you change one, change
-both so they don't drift. If Fable is routed/unavailable in your setup, the
-architect will fall back to whatever the model string resolves to — the workflow
-still works; note it and carry on.
+The governing rule is `@prompts/model-selection.md` (global): match the task's
+floor, take the cheapest model that clears it, tiebreak intelligence > taste >
+cost. Models are configured by **capability tier**, not by named role — one knob
+per tier (`orch.py config models`). Each role maps to a tier:
+
+| tier (config key) | default model | roles / use |
+|-------------------|---------------|-------------|
+| `staff`      | `claude-fable-5`   | Manager (recommended session model), Architect — long-running, unsupervised, taste-heavy |
+| `senior`     | `opus`             | Builder, spec-preflight, code-preflight — well-defined execution & structure/spec-conformance review |
+| `junior`     | `claude-sonnet-5`  | simple/low-floor tasks; the `codex-runner` wrapper (run at low effort) |
+| `reviewer`   | gpt-5.5 via `codex review` | cross-model correctness review of Anthropic code — **outside** the Claude hierarchy |
+| `mechanical` | gpt-5.5 via `codex exec`   | computer-use + bulk mechanical work |
+
+Each subagent's frontmatter pins a concrete model that matches its tier; the
+`orch.py config models.<tier>` values mirror them. If you change one, change both
+so they don't drift.
+
+**Escalation.** These are defaults, not limits. If a producing subagent's output
+is below bar, redo it a tier up without asking (Builder `senior` → `staff`; the
+architect is already `staff`). At the round cap with blocking findings open, bump
+the producer up a tier for one more round before blocking. When a model is
+unavailable, fall **up** to the next that clears the floor — never silently down.
+Log escalations with `orch.py log`.

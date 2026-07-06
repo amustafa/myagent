@@ -1,8 +1,39 @@
 # Codex — the external reviewer
 
-Codex is OpenAI's CLI. You call it from `bash` as the independent, cross-model
-reviewer whose verdict gates each phase. It runs locally, reads the repo, and
-(in review mode) must not modify anything.
+Codex is OpenAI's CLI (gpt-5.5). You call it from `bash` as the independent,
+cross-model reviewer whose verdict gates each phase — and, more generally, as the
+way to reach gpt-5.5 for cross-model review of Anthropic-written code and bulk
+mechanical work. It runs locally, reads the repo, and (in review mode) must not
+modify anything.
+
+## Two subcommands, two jobs
+
+- **`codex review`** — purpose-built, non-interactive code review. Prefer this for
+  the build-phase correctness gate. Point it at the base branch:
+
+  ```bash
+  REVIEWER=$(python3 .../orch.py config models.reviewer)   # gpt-5.5 model; may be blank
+  codex review --base <primary_branch> ${REVIEWER:+-c model="$REVIEWER"} "<review instructions>"
+  codex review --uncommitted ${REVIEWER:+-c model="$REVIEWER"} "<review instructions>"
+  ```
+
+  The `reviewer` tier model comes from `orch.py config models.reviewer`; blank
+  means use Codex's default.
+
+- **`codex exec`** — general non-interactive agent run, for everything that isn't a
+  branch review (spec review, computer-use/bulk **mechanical** work, one-off gpt-5.5
+  delegation). Pin its model with `-m $(orch.py config models.mechanical)` for
+  mechanical/bulk work, or `models.reviewer` for a spec review. Covered just below.
+
+## Reaching gpt-5.5 from a subagent (the `codex-runner` wrapper)
+
+Sometimes you want gpt-5.5 as a *node in a fan-out* (a Workflow `parallel()`
+stage, or one of several Agent-tool subagents) rather than a direct shell call.
+You can't spawn a gpt-5.5 agent directly, so use the **`codex-runner`** subagent —
+a sonnet model at low effort whose only job is to run your self-contained prompt
+through `codex exec`/`codex review` and hand back the result verbatim. When you
+already hold a shell (as the Manager usually does), just call codex yourself; the
+wrapper is for fan-outs.
 
 ## The command
 
@@ -13,8 +44,8 @@ approval prompt, and `-s read-only` so a review can't touch files.
 Base command comes from config so the user can tune it:
 
 ```bash
-CODEX=$(python3 .../orch.py config codex_cmd)     # default: codex exec --full-auto -s read-only
-CMODEL=$(python3 .../orch.py config codex_model)  # e.g. gpt-5-codex-max; may be blank
+CODEX=$(python3 .../orch.py config codex_cmd)          # default: codex exec --full-auto -s read-only
+CMODEL=$(python3 .../orch.py config models.reviewer)  # gpt-5.5 reviewer model; may be blank
 MFLAG=""; [ -n "$CMODEL" ] && MFLAG="-m $CMODEL"
 ```
 
@@ -47,7 +78,9 @@ For each finding output: [SEVERITY: blocking|major|minor] <file/section> — <is
 End with exactly one line:  VERDICT: PASS   (no blocking/major)  or  VERDICT: CHANGES.
 ```
 
-**Code review:**
+**Code review** (with `codex review --base <primary_branch>` the diff is already
+scoped, so the instructions are just the *what to look for*; the `git diff` phrasing
+below is only needed if you fall back to `codex exec`):
 
 ```
 Review the changes on this branch vs <primary_branch>

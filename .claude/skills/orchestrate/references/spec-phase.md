@@ -31,6 +31,11 @@ Phases covered: `spec` → `spec_review` → `awaiting_approval`.
 `orch.py set <id> phase spec_review`. Then repeat the produce→review→incorporate
 cycle until Codex is clean.
 
+Preflight and the Codex review are independent — if you spawn a `spec-preflight`
+subagent, run it and the `codex exec` spec review **concurrently** and consolidate
+when both return (see `references/mechanics.md`). For a small spec, the inline
+preflight below is cheaper than either.
+
 ### Step A — preflight (the cheap filter)
 
 Do this before every Codex call. Two options; pick by size/complexity:
@@ -56,7 +61,7 @@ Run Codex read-only over the spec and save the raw report. See
 `references/codex.md` for the exact command and the review prompt. In short:
 
 ```bash
-$(orch.py config codex_cmd) [ -m <codex_model> ] \
+$(orch.py config codex_cmd) [ -m $(orch.py config models.reviewer) ] \
   "Review the design spec at <spec path> as a staff engineer. Flag correctness
    gaps, missing requirements, contradictions, unhandled edge cases, security/
    data-loss risks, and untestable criteria. Tag each finding
@@ -91,8 +96,13 @@ packet:
 
 Then loop back to Step A.
 
-**Round cap:** default 5. If blocking findings persist at the cap, set
-`status blocked`, summarize the sticking points, and bring the user in.
+**Round cap:** default 5. Before you block, apply the **escalation** rule (see
+SKILL.md "Escalation"): the Architect is already fable (top of the ladder), so
+escalation here means redoing a below-bar spec immediately rather than looping on
+the same weak draft, and — if blocking findings persist at the cap despite a
+strong draft — bringing the user in. If blocking findings still persist, set
+`status blocked`, summarize the sticking points, and bring the user in. Log any
+escalation with `orch.py log`.
 
 ## Exit — the approval gate
 

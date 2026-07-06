@@ -42,19 +42,25 @@ STATUS_MD = os.path.join(BASE, "STATUS.md")
 DEFAULT_CONFIG = {
     "auto_advance_to_build": False,   # False => stop at awaiting_approval gate
     "auto_advance_to_integrate": True,
+    "use_codex": True,                # gpt-5.5 reviewer gate on when codex is present
     "codex_cmd": "codex exec --full-auto -s read-only",
-    "codex_model": "",                # e.g. "gpt-5-codex-max"; blank => codex default
     "test_cmd": "",                   # e.g. "npm test" or "pytest -q"; blank => skip
     "primary_branch": "main",
     "memory_file": ".orchestrate/memory.md",
     "backlog_file": ".orchestrate/backlog.md",
     "tracker_file": ".orchestrate/STATUS.md",
+    # Models by capability TIER — see references/subagents.md and
+    # @prompts/model-selection.md. staff (fable) = Manager + Architect; senior
+    # (opus) = Builder + structure/spec preflight; junior (sonnet) = simple tasks
+    # + the codex-runner wrapper; reviewer (gpt-5.5) = cross-model correctness
+    # review via `codex review`, OUTSIDE the Claude hierarchy; mechanical (gpt-5.5)
+    # = computer-use + bulk work via the Codex CLI.
     "models": {
-        "manager": "opus",
-        "architect": "claude-fable-5",
-        "spec_preflight": "opus",
-        "builder": "opus",
-        "code_preflight": "opus",
+        "staff": "claude-fable-5",     # Manager (recommended session model) + Architect
+        "senior": "opus",              # Builder + structure/spec-conformance preflight
+        "junior": "claude-sonnet-5",   # simple tasks + codex-runner wrapper
+        "reviewer": "gpt-5-codex-max", # correctness review (gpt-5.5); "" when use_codex off
+        "mechanical": "gpt-5-codex-max",  # computer-use + bulk work (gpt-5.5)
     },
 }
 
@@ -259,13 +265,27 @@ def cmd_config(args):
         print(json.dumps(cfg, indent=2))
         return
     key = args[0]
+    # dotted keys index into nested dicts, e.g. "models.reviewer"
+    path = key.split(".")
     if len(args) == 1:
-        print(json.dumps(cfg.get(key), indent=2))
+        node = cfg
+        for part in path:
+            node = node.get(part) if isinstance(node, dict) else None
+            if node is None:
+                break
+        print(json.dumps(node, indent=2))
         return
     val = " ".join(args[1:])
     if val.lower() in ("true", "false"):
         val = val.lower() == "true"
-    cfg[key] = val
+    node = cfg
+    for part in path[:-1]:
+        nxt = node.get(part)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            node[part] = nxt
+        node = nxt
+    node[path[-1]] = val
     save(data)
     print(f"config {key} -> {val}")
 
