@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,7 +20,6 @@ const (
 	screenSelect
 	screenConflicts
 	screenFlavorForm
-	screenNameFlavor
 	screenDone
 )
 
@@ -74,8 +74,6 @@ type model struct {
 	// flavor-create / edit flow
 	form        flavorForm
 	pendingTpl  Template
-	pendingName string // flavor name entered before the options form (create flow)
-	nameInput   textinput.Model
 	editingInst *FlavorInstance // non-nil when editing an existing flavor's choices
 
 	plan          []planItem
@@ -114,10 +112,6 @@ func newModel(sourceClaude string, comps []Component, templates []Template) mode
 	ti.Prompt = "› "
 	ti.CharLimit = 4096
 
-	name := textinput.New()
-	name.Prompt = "› "
-	name.CharLimit = 128
-
 	return model{
 		sourceClaude: sourceClaude,
 		comps:        comps,
@@ -128,7 +122,6 @@ func newModel(sourceClaude string, comps []Component, templates []Template) mode
 		installed:    map[string]bool{},
 		updated:      map[string]bool{},
 		dir:          ti,
-		nameInput:    name,
 	}
 }
 
@@ -208,8 +201,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateConflicts(msg)
 		case screenFlavorForm:
 			return m.updateFlavorForm(msg)
-		case screenNameFlavor:
-			return m.updateNameFlavor(msg)
 		case screenDone:
 			if msg.Type == tea.KeyEnter || msg.String() == "q" {
 				return m, tea.Quit
@@ -342,18 +333,36 @@ func (m model) updateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // ---- flavor create flow -----------------------------------------------------
 
-// beginCreate starts the create flow by asking for a name first, then the
-// options. Naming up front makes it a dedicated, unmissable step (rather than a
-// screen buried after a long options form).
+// nameKey is the reserved option key for the flavor-name field prepended to the
+// create form.
+const nameKey = "__name__"
+
+// withNameField returns the template's schema with a Name field prepended, so
+// naming is the first field of the create form (defaulting to the template name).
+func withNameField(tpl Template) *FlavorSchema {
+	def, _ := json.Marshal(tpl.Name)
+	name := FlavorOption{
+		Key:      nameKey,
+		Label:    "Name (installed skill name)",
+		Type:     OptString,
+		Help:     "must be unique",
+		Default:  json.RawMessage(def),
+		Required: true,
+		Regex:    `^[^/\\ ]+$`,
+	}
+	opts := append([]FlavorOption{name}, tpl.Schema.Options...)
+	return &FlavorSchema{Flavor: tpl.Schema.Flavor, Version: tpl.Schema.Version, Options: opts}
+}
+
+// beginCreate opens the create form, whose first field is the flavor name
+// (defaulted to the template name).
 func (m model) beginCreate(tpl Template) (tea.Model, tea.Cmd) {
 	m.pendingTpl = tpl
 	m.editingInst = nil
-	m.nameInput.SetValue(tpl.Name) // sensible default; the user can rename
-	m.nameInput.CursorEnd()
-	m.nameInput.Focus()
+	m.form = newFlavorForm(withNameField(tpl), nil)
 	m.err = nil
 	m.flash = ""
-	m.screen = screenNameFlavor
+	m.screen = screenFlavorForm
 	return m, textinput.Blink
 }
 
@@ -374,10 +383,22 @@ func (m model) updateFlavorForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// doCreateSubmit renders the new flavor using the name collected up front and
-// the options from the form.
+// doCreateSubmit pulls the name out of the form's first field and renders the
+// new flavor from the remaining options. A duplicate name keeps the form open
+// with an error rather than dropping the entered options.
 func (m model) doCreateSubmit() (tea.Model, tea.Cmd) {
-	inst, err := createFlavor(m.pendingTpl, m.pendingName, m.form.values, m.commit)
+	name := strings.TrimSpace(asString(m.form.values[nameKey]))
+	if flavorExists(name) {
+		m.form.err = fmt.Sprintf("a flavor named %q already exists — pick another", name)
+		return m, nil // stay on the form (screen is still screenFlavorForm)
+	}
+	opts := map[string]any{}
+	for k, v := range m.form.values {
+		if k != nameKey {
+			opts[k] = v
+		}
+	}
+	inst, err := createFlavor(m.pendingTpl, name, opts, m.commit)
 	if err != nil {
 		m.flash = "create failed: " + err.Error()
 		m.screen = screenSelect
@@ -437,32 +458,6 @@ func (m model) doEditSubmit() (tea.Model, tea.Cmd) {
 	m.flash = "updated flavor " + updated.Name + " with new choices"
 	m.screen = screenSelect
 	return m, nil
-}
-
-func (m model) updateNameFlavor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
-		m.screen = screenSelect // cancel back to the list
-		return m, nil
-	case tea.KeyEnter:
-		name := strings.TrimSpace(m.nameInput.Value())
-		if name == "" || strings.ContainsAny(name, "/\\ ") {
-			m.err = fmt.Errorf("name must be non-empty with no spaces or slashes")
-			return m, nil
-		}
-		if flavorExists(name) {
-			m.err = fmt.Errorf("a flavor named %q already exists — pick another", name)
-			return m, nil
-		}
-		m.pendingName = name
-		m.err = nil
-		m.form = newFlavorForm(m.pendingTpl.Schema, nil) // now collect options
-		m.screen = screenFlavorForm
-		return m, nil
-	}
-	var cmd tea.Cmd
-	m.nameInput, cmd = m.nameInput.Update(msg)
-	return m, cmd
 }
 
 // doUpdate re-renders a flavor from its saved input against the current source.
