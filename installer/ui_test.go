@@ -75,11 +75,26 @@ func TestFlavorPanelHiddenOnTemplateRow(t *testing.T) {
 	}
 }
 
-func TestFlavorPanelHiddenWhenNarrow(t *testing.T) {
+func TestFlavorPanelStacksBelowWhenNarrow(t *testing.T) {
 	m, flavorRow, _ := panelSetup(t, 40)
 	m.cursor = flavorRow
-	if strings.Contains(m.viewSelect(), "Selections") {
-		t.Error("panel should be suppressed on a narrow terminal")
+	// On a narrow terminal the panel stacks below rather than beside — but it
+	// still shows, so the info is never hidden.
+	if !strings.Contains(m.viewSelect(), "Selections") {
+		t.Error("panel should still appear (stacked below) on a narrow terminal")
+	}
+}
+
+func TestTemplatePanelPreviewsOptions(t *testing.T) {
+	m, _, templateRow := panelSetup(t, 120)
+	m.cursor = templateRow
+	out := m.viewSelect()
+	// Hovering a template previews its options (not a created flavor's selections).
+	if !strings.Contains(out, "Options") || !strings.Contains(out, "configure & create") {
+		t.Errorf("expected a template options preview, got:\n%s", out)
+	}
+	if strings.Contains(out, "Selections") {
+		t.Errorf("template preview should not show instance 'Selections':\n%s", out)
 	}
 }
 

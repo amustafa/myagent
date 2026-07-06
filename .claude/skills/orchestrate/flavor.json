@@ -3,36 +3,54 @@
   "version": 1,
   "options": [
     {
-      "key": "models.primary",
-      "label": "Primary model (Manager/Builder/preflight tier, fallback order)",
+      "key": "models.staff",
+      "label": "Staff tier — Manager & Architect (fallback order — fable recommended)",
       "type": "enum-list",
-      "help": "First entry is the working model; the rest are fallbacks in order.",
-      "enum": ["claude-opus-4-8", "claude-sonnet-5", "claude-fable-5", "gpt-5-codex-max"],
-      "default": ["claude-opus-4-8", "claude-sonnet-5"],
+      "help": "Long-running, unsupervised, taste-heavy work: design + coordination. First entry is the working model; the rest are fallbacks, applied by falling UP to a smarter model when one is unavailable. fable is the recommended default. (haiku is intentionally excluded.)",
+      "enum": ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5"],
+      "default": ["claude-fable-5", "claude-opus-4-8"],
       "required": true
     },
     {
-      "key": "models.secondary",
-      "label": "Secondary model (Architect tier, fallback order)",
+      "key": "models.senior",
+      "label": "Senior tier — Builder & structural preflight (fallback order — falls UP)",
       "type": "enum-list",
-      "enum": ["claude-fable-5", "claude-sonnet-5", "claude-haiku-4-5"],
-      "default": ["claude-fable-5", "claude-sonnet-5"],
+      "help": "Well-defined execution against a locked spec, and structure/spec-conformance preflight review. Fall UP to a smarter model when one is unavailable, never down.",
+      "enum": ["claude-opus-4-8", "claude-fable-5", "claude-sonnet-5"],
+      "default": ["claude-opus-4-8", "claude-fable-5", "claude-sonnet-5"],
+      "required": true
+    },
+    {
+      "key": "models.junior",
+      "label": "Junior tier — simple tasks & the codex-runner wrapper (fallback order)",
+      "type": "enum-list",
+      "help": "Straightforward, low-floor Claude tasks, and the thin sonnet wrapper around the Codex CLI. Falls UP if unavailable.",
+      "enum": ["claude-sonnet-5", "claude-opus-4-8"],
+      "default": ["claude-sonnet-5"],
       "required": true
     },
     {
       "key": "use_codex",
-      "label": "Gate reviews on the external Codex reviewer",
+      "label": "Gate reviews on the external reviewer tier (gpt-5.5 / Codex)",
       "type": "bool",
       "default": true
     },
     {
-      "key": "codex_model",
-      "label": "Codex model",
+      "key": "models.reviewer",
+      "label": "Reviewer tier — cross-model correctness review (gpt-5.5, outside the hierarchy)",
       "type": "enum-or-custom",
-      "help": "Only used when Codex gating is on.",
-      "enum": ["gpt-5-codex-max", "gpt-5-codex"],
+      "help": "Reviews Anthropic-written code with a different model to avoid a same-model blind spot. Runs via `codex review`. Only used when the reviewer gate is on.",
+      "enum": ["gpt-5-codex", "gpt-5-codex-max"],
       "default": "gpt-5-codex-max",
       "showIf": { "use_codex": true }
+    },
+    {
+      "key": "models.mechanical",
+      "label": "Mechanical tier — computer-use & bulk work (gpt-5.5 / Codex)",
+      "type": "enum-list",
+      "help": "Effectively-free bulk mechanical work and computer-use (simulators, screenshots, app launching, runtime inspection) via the Codex CLI. Used by the codex-computer-use skill.",
+      "enum": ["gpt-5-codex", "sonnet-5"],
+      "default": "gpt-5-codex"
     },
     {
       "key": "test_cmd",

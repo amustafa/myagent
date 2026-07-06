@@ -118,23 +118,64 @@ func (m model) viewSelect() string {
 		b.WriteString(fmt.Sprintf("%s%s %s%s\n", cursor, check, name, m.rowTags(c)))
 	}
 
-	if m.flash != "" {
-		b.WriteString("\n" + warnStyle.Render(m.flash) + "\n")
-	}
-	b.WriteString(helpStyle.Render("↑/↓ move · space toggle · enter apply · a all · e edit · u update · d delete · esc back") + "\n")
-	b.WriteString(dimStyle.Render("checked = install · uncheck an installed item to uninstall · pick under Add New Flavor to create one"))
-
-	content := b.String()
-	// When the cursor is on a rendered flavor, show its selections in a side
-	// panel — but only when the terminal is wide enough to hold both columns.
-	if m.cursor >= 0 && m.cursor < len(m.rows) {
-		if r := m.rows[m.cursor]; r.kind == rowComponent && r.comp.Flavor != nil {
-			if m.width == 0 || m.width >= 74 {
-				content = lipgloss.JoinHorizontal(lipgloss.Top, content, m.flavorPanel(r.comp.Flavor))
-			}
+	body := b.String()
+	// Show a side panel for the hovered row: a template's options preview, or a
+	// created flavor's selections. Placed to the right when the terminal is wide
+	// enough, stacked below otherwise (so it always shows).
+	if panel := m.hoverPanel(); panel != "" {
+		if m.width == 0 || m.width >= lipgloss.Width(body)+lipgloss.Width(panel)+2 {
+			body = lipgloss.JoinHorizontal(lipgloss.Top, body, panel)
+		} else {
+			body += "\n" + panel
 		}
 	}
-	return content + "\n"
+
+	var f strings.Builder
+	if m.flash != "" {
+		f.WriteString(warnStyle.Render(m.flash) + "\n")
+	}
+	f.WriteString(helpStyle.Render("↑/↓ move · space toggle/create · enter apply · a all · e edit · u update · d delete · esc back") + "\n")
+	f.WriteString(dimStyle.Render("checked = install · uncheck to uninstall · e/u/d act on a created flavor"))
+	return body + "\n" + f.String() + "\n"
+}
+
+// hoverPanel returns the side-panel content for the row under the cursor: a
+// template's options preview, or a created flavor's selections. Empty for basic
+// component rows.
+func (m model) hoverPanel() string {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return ""
+	}
+	switch r := m.rows[m.cursor]; {
+	case r.kind == rowTemplate:
+		return m.templatePanel(r.tpl)
+	case r.kind == rowComponent && r.comp.Flavor != nil:
+		return m.flavorPanel(r.comp.Flavor)
+	}
+	return ""
+}
+
+// templatePanel previews a flavor template: what its options are and their
+// defaults, so you can see what "create" would configure before starting.
+func (m model) templatePanel(tpl Template) string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(tpl.Name) + "\n")
+	kind := "skill flavor template"
+	if tpl.Target == "mcp" {
+		kind = "MCP server flavor template"
+	}
+	b.WriteString(dimStyle.Render(kind) + "\n")
+	b.WriteString("\n" + groupStyle.Render("Options") + "\n")
+	for _, o := range tpl.Schema.Options {
+		b.WriteString(activeStyle.Render(o.Label) + "\n")
+		meta := string(o.Type)
+		if len(o.Default) > 0 {
+			meta += " · default: " + flavorValueString(o, o.defaultValue())
+		}
+		b.WriteString("  " + dimStyle.Render(meta) + "\n")
+	}
+	b.WriteString("\n" + okStyle.Render("enter → configure & create"))
+	return panelStyle.Render(strings.TrimRight(b.String(), "\n"))
 }
 
 // flavorPanel renders a flavor instance's saved selections. When the source
