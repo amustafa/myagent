@@ -34,6 +34,8 @@ type planItem struct {
 type model struct {
 	sourceClaude string
 	comps        []Component
+	commit       string    // source repo commit at launch
+	manifest     *Manifest // install-state record for the chosen target
 
 	screen    screen
 	scope     int // 0 = global, 1 = project
@@ -75,6 +77,7 @@ func newModel(sourceClaude string, comps []Component) model {
 	return model{
 		sourceClaude: sourceClaude,
 		comps:        comps,
+		commit:       sourceCommit(filepath.Dir(sourceClaude)),
 		screen:       screenScope,
 		selected:     make(map[int]bool, len(comps)),
 		installed:    make(map[int]bool, len(comps)),
@@ -86,6 +89,7 @@ func newModel(sourceClaude string, comps []Component) model {
 // moves to the selection screen. Already-installed components start checked so
 // the form reflects reality and re-running is idempotent.
 func (m model) enterSelect() model {
+	m.manifest = loadManifest(m.targetClaude)
 	for i, c := range m.comps {
 		state, _ := classifyDest(m.targetClaude, c)
 		isInstalled := state == destLinkedToUs
@@ -270,6 +274,7 @@ func (m model) runPlan() (tea.Model, tea.Cmd) {
 	m.results = nil
 	for _, item := range m.plan {
 		if item.res == resSkip && item.state == destLinkedToUs {
+			m.recordSymlink(item.comp) // backfill pre-existing installs into the manifest
 			m.results = append(m.results, fmt.Sprintf("✓ %s — already installed", item.comp.RelPath))
 			continue
 		}
@@ -278,10 +283,31 @@ func (m model) runPlan() (tea.Model, tea.Cmd) {
 			m.results = append(m.results, fmt.Sprintf("✗ %s — %v", item.comp.RelPath, err))
 			continue
 		}
+		switch item.res {
+		case resInstall, resOverwrite, resBackup:
+			m.recordSymlink(item.comp)
+		case resRemove:
+			m.manifest.forget(item.comp.RelPath)
+		}
 		m.results = append(m.results, fmt.Sprintf("• %s — %s", item.comp.RelPath, msg))
+	}
+	if err := m.manifest.save(); err != nil {
+		m.results = append(m.results, fmt.Sprintf("✗ could not write install state — %v", err))
+	} else {
+		m.results = append(m.results, dimStyle.Render("state: "+m.manifest.path))
 	}
 	m.screen = screenDone
 	return m, nil
+}
+
+// recordSymlink notes a symlink-kind install in the manifest.
+func (m model) recordSymlink(c Component) {
+	m.manifest.record(c.RelPath, InstanceRecord{
+		Kind:        "symlink",
+		Source:      c.Source,
+		InstalledAt: nowStamp(),
+		Commit:      m.commit,
+	})
 }
 
 func (m model) allSelected() bool {

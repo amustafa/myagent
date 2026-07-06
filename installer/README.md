@@ -38,3 +38,15 @@ go run . -list      # print discovered components, no TUI
 
 Re-running is safe: components already symlinked to this repo are detected,
 shown as installed, and left untouched unless you explicitly uncheck them.
+
+## Install state
+
+Every apply is recorded in a per-environment manifest under
+`${MYAGENTCFG_DIR:-~/.config/myagentcfg}/environments/<env>/installed.json`,
+where an **environment** is one install target — `global` for `~/.claude`, or a
+path-slug for a project. Each entry records the component's source, install
+time, and the source repo's commit at install time.
+
+The manifest is a *record*, not the source of truth: it's reconciled against the
+filesystem on load, so a symlink you delete by hand is dropped from the manifest
+rather than lingering as a lie. Set `MYAGENTCFG_DIR` to relocate the store.
