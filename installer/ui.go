@@ -87,6 +87,8 @@ type model struct {
 	results       []string
 	err           error
 	quit          bool
+
+	width, height int // terminal size (from WindowSizeMsg)
 }
 
 var (
@@ -97,6 +99,12 @@ var (
 	okStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	warnStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	dimStyle    = lipgloss.NewStyle().Faint(true)
+	panelStyle  = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("39")).
+			Padding(0, 1).
+			MarginLeft(2).
+			Width(38)
 )
 
 func newModel(sourceClaude string, comps []Component, templates []Template) model {
@@ -180,6 +188,9 @@ func (m model) Init() tea.Cmd { return nil }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		return m, nil
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC {
 			m.quit = true

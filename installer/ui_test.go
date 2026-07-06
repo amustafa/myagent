@@ -27,6 +27,62 @@ func TestSelectViewListsTemplatesUnderAddNewFlavor(t *testing.T) {
 	}
 }
 
+// panelSetup builds a fresh model with one rendered flavor ("p1", label=hello)
+// at the given width, and returns it plus the flavor-row and template-row
+// indices. Each caller does a single render (calling viewSelect repeatedly on
+// fresh models within one test proved flaky in a way the single-render TUI never
+// hits — see the separate tests below).
+func panelSetup(t *testing.T, width int) (model, int, int) {
+	t.Helper()
+	t.Setenv("MYAGENTCFG_DIR", t.TempDir())
+	tpl := stubTemplate(t) // one option "label" (registry_test.go)
+	if _, err := createFlavor(tpl, "p1", map[string]any{"label": "hello"}, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	m := newModel("/src/.claude", nil, []Template{tpl})
+	m.width = width
+	m.targetClaude = filepath.Join(t.TempDir(), ".claude")
+	m = m.enterSelect()
+	flavorRow, templateRow := -1, -1
+	for i, r := range m.rows {
+		if r.kind == rowComponent && r.comp.Flavor != nil {
+			flavorRow = i
+		}
+		if r.kind == rowTemplate {
+			templateRow = i
+		}
+	}
+	if flavorRow < 0 || templateRow < 0 {
+		t.Fatalf("expected a flavor row and a template row: %+v", m.rows)
+	}
+	return m, flavorRow, templateRow
+}
+
+func TestFlavorPanelShowsOnFlavorRow(t *testing.T) {
+	m, flavorRow, _ := panelSetup(t, 120)
+	m.cursor = flavorRow
+	out := m.viewSelect()
+	if !strings.Contains(out, "Selections") || !strings.Contains(out, "hello") {
+		t.Errorf("expected the selections panel with the chosen value, got:\n%s", out)
+	}
+}
+
+func TestFlavorPanelHiddenOnTemplateRow(t *testing.T) {
+	m, _, templateRow := panelSetup(t, 120)
+	m.cursor = templateRow
+	if strings.Contains(m.viewSelect(), "Selections") {
+		t.Error("panel should not appear when hovering a template row")
+	}
+}
+
+func TestFlavorPanelHiddenWhenNarrow(t *testing.T) {
+	m, flavorRow, _ := panelSetup(t, 40)
+	m.cursor = flavorRow
+	if strings.Contains(m.viewSelect(), "Selections") {
+		t.Error("panel should be suppressed on a narrow terminal")
+	}
+}
+
 func send(t *testing.T, m model, msg tea.Msg) model {
 	t.Helper()
 	next, _ := m.Update(msg)

@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func (m model) View() string {
@@ -120,7 +123,94 @@ func (m model) viewSelect() string {
 	}
 	b.WriteString(helpStyle.Render("↑/↓ move · space toggle · enter apply · a all · e edit · u update · d delete · esc back") + "\n")
 	b.WriteString(dimStyle.Render("checked = install · uncheck an installed item to uninstall · pick under Add New Flavor to create one"))
-	return b.String() + "\n"
+
+	content := b.String()
+	// When the cursor is on a rendered flavor, show its selections in a side
+	// panel — but only when the terminal is wide enough to hold both columns.
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		if r := m.rows[m.cursor]; r.kind == rowComponent && r.comp.Flavor != nil {
+			if m.width == 0 || m.width >= 74 {
+				content = lipgloss.JoinHorizontal(lipgloss.Top, content, m.flavorPanel(r.comp.Flavor))
+			}
+		}
+	}
+	return content + "\n"
+}
+
+// flavorPanel renders a flavor instance's saved selections. When the source
+// template is still present its option labels/order are used; otherwise it falls
+// back to the raw key/value input.
+func (m model) flavorPanel(inst *FlavorInstance) string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(inst.Name) + "\n")
+	b.WriteString(dimStyle.Render("skill: "+inst.Meta.Skill) + "\n")
+	if inst.Meta.Commit != "" {
+		b.WriteString(dimStyle.Render("commit: "+inst.Meta.Commit) + "\n")
+	}
+	b.WriteString("\n" + groupStyle.Render("Selections") + "\n")
+
+	if tpl, ok := m.templateFor(inst.Meta.Skill); ok {
+		for _, o := range tpl.Schema.Options {
+			if !o.visible(inst.Input) {
+				continue
+			}
+			b.WriteString(activeStyle.Render(o.Label) + "\n")
+			b.WriteString("  " + flavorValueString(o, inst.Input[o.Key]) + "\n")
+		}
+	} else {
+		keys := make([]string, 0, len(inst.Input))
+		for k := range inst.Input {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			b.WriteString(activeStyle.Render(k) + ": " + fmt.Sprint(inst.Input[k]) + "\n")
+		}
+	}
+	return panelStyle.Render(strings.TrimRight(b.String(), "\n"))
+}
+
+// flavorValueString formats one selection for the panel, mirroring how the form
+// summarizes values. Input read back from JSON arrives as []any, so lists are
+// normalized here.
+func flavorValueString(o FlavorOption, v any) string {
+	switch {
+	case o.isMulti():
+		xs := toStringList(v)
+		if len(xs) == 0 {
+			return dimStyle.Render("(none)")
+		}
+		sep := ", "
+		if o.Type == OptEnumList {
+			sep = " > "
+		}
+		return strings.Join(xs, sep)
+	case o.Type == OptBool:
+		if b, ok := v.(bool); ok && b {
+			return "yes"
+		}
+		return "no"
+	default:
+		s := fmt.Sprint(v)
+		if s == "" {
+			return dimStyle.Render("(empty)")
+		}
+		return s
+	}
+}
+
+func toStringList(v any) []string {
+	switch xs := v.(type) {
+	case []string:
+		return xs
+	case []any:
+		out := make([]string, 0, len(xs))
+		for _, e := range xs {
+			out = append(out, fmt.Sprint(e))
+		}
+		return out
+	}
+	return nil
 }
 
 // rowTags renders the trailing status tags for a component row.
