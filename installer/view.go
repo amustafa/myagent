@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func (m model) View() string {
@@ -20,8 +23,6 @@ func (m model) View() string {
 		return m.viewSelect()
 	case screenConflicts:
 		return m.viewConflicts()
-	case screenPickTemplate:
-		return m.viewPickTemplate()
 	case screenFlavorForm:
 		return m.form.view()
 	case screenNameFlavor:
@@ -81,16 +82,20 @@ func (m model) viewSelect() string {
 		if i == m.cursor {
 			cursor = activeStyle.Render("▸ ")
 		}
-		if r.kind == rowAddFlavor {
-			if lastLabel != "Flavors" {
-				b.WriteString(groupStyle.Render("Flavors") + "\n")
-				lastLabel = "Flavors"
+		if r.kind == rowTemplate {
+			if lastLabel != "Add New Flavor" {
+				b.WriteString(groupStyle.Render("Add New Flavor") + "\n")
+				lastLabel = "Add New Flavor"
 			}
-			label := "＋ Add new flavor"
+			name := r.tpl.Name
+			hint := fmt.Sprintf("  %d options", len(r.tpl.Schema.Options))
+			if r.tpl.Target == "mcp" {
+				hint += " · mcp"
+			}
 			if i == m.cursor {
-				label = activeStyle.Render(label)
+				name = activeStyle.Render(name)
 			}
-			b.WriteString(fmt.Sprintf("%s%s\n", cursor, label))
+			b.WriteString(fmt.Sprintf("%s%s%s\n", cursor, name, dimStyle.Render(hint)))
 			continue
 		}
 
@@ -116,9 +121,96 @@ func (m model) viewSelect() string {
 	if m.flash != "" {
 		b.WriteString("\n" + warnStyle.Render(m.flash) + "\n")
 	}
-	b.WriteString(helpStyle.Render("↑/↓ move · space toggle/add · a all · e edit · u update · d delete · enter apply · esc back") + "\n")
-	b.WriteString(dimStyle.Render("checked = install · uncheck an installed item to uninstall"))
-	return b.String() + "\n"
+	b.WriteString(helpStyle.Render("↑/↓ move · space toggle · enter apply · a all · e edit · u update · d delete · esc back") + "\n")
+	b.WriteString(dimStyle.Render("checked = install · uncheck an installed item to uninstall · pick under Add New Flavor to create one"))
+
+	content := b.String()
+	// When the cursor is on a rendered flavor, show its selections in a side
+	// panel — but only when the terminal is wide enough to hold both columns.
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		if r := m.rows[m.cursor]; r.kind == rowComponent && r.comp.Flavor != nil {
+			if m.width == 0 || m.width >= 74 {
+				content = lipgloss.JoinHorizontal(lipgloss.Top, content, m.flavorPanel(r.comp.Flavor))
+			}
+		}
+	}
+	return content + "\n"
+}
+
+// flavorPanel renders a flavor instance's saved selections. When the source
+// template is still present its option labels/order are used; otherwise it falls
+// back to the raw key/value input.
+func (m model) flavorPanel(inst *FlavorInstance) string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(inst.Name) + "\n")
+	b.WriteString(dimStyle.Render("skill: "+inst.Meta.Skill) + "\n")
+	if inst.Meta.Commit != "" {
+		b.WriteString(dimStyle.Render("commit: "+inst.Meta.Commit) + "\n")
+	}
+	b.WriteString("\n" + groupStyle.Render("Selections") + "\n")
+
+	if tpl, ok := m.templateFor(inst.Meta.Skill); ok {
+		for _, o := range tpl.Schema.Options {
+			if !o.visible(inst.Input) {
+				continue
+			}
+			b.WriteString(activeStyle.Render(o.Label) + "\n")
+			b.WriteString("  " + flavorValueString(o, inst.Input[o.Key]) + "\n")
+		}
+	} else {
+		keys := make([]string, 0, len(inst.Input))
+		for k := range inst.Input {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			b.WriteString(activeStyle.Render(k) + ": " + fmt.Sprint(inst.Input[k]) + "\n")
+		}
+	}
+	return panelStyle.Render(strings.TrimRight(b.String(), "\n"))
+}
+
+// flavorValueString formats one selection for the panel, mirroring how the form
+// summarizes values. Input read back from JSON arrives as []any, so lists are
+// normalized here.
+func flavorValueString(o FlavorOption, v any) string {
+	switch {
+	case o.isMulti():
+		xs := toStringList(v)
+		if len(xs) == 0 {
+			return dimStyle.Render("(none)")
+		}
+		sep := ", "
+		if o.Type == OptEnumList {
+			sep = " > "
+		}
+		return strings.Join(xs, sep)
+	case o.Type == OptBool:
+		if b, ok := v.(bool); ok && b {
+			return "yes"
+		}
+		return "no"
+	default:
+		s := fmt.Sprint(v)
+		if s == "" {
+			return dimStyle.Render("(empty)")
+		}
+		return s
+	}
+}
+
+func toStringList(v any) []string {
+	switch xs := v.(type) {
+	case []string:
+		return xs
+	case []any:
+		out := make([]string, 0, len(xs))
+		for _, e := range xs {
+			out = append(out, fmt.Sprint(e))
+		}
+		return out
+	}
+	return nil
 }
 
 // rowTags renders the trailing status tags for a component row.
@@ -141,27 +233,6 @@ func (m model) rowTags(c Component) string {
 		return ""
 	}
 	return "  " + strings.Join(tags, "  ")
-}
-
-func (m model) viewPickTemplate() string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("Add new flavor") + "\n")
-	b.WriteString(dimStyle.Render("pick a flavorable skill to configure") + "\n\n")
-	for i, t := range m.templates {
-		cursor := "  "
-		name := t.Name
-		if i == m.pickCursor {
-			cursor = activeStyle.Render("▸ ")
-			name = activeStyle.Render(name)
-		}
-		desc := ""
-		if t.Schema != nil {
-			desc = dimStyle.Render(fmt.Sprintf("  %d options", len(t.Schema.Options)))
-		}
-		b.WriteString(fmt.Sprintf("%s%s%s\n", cursor, name, desc))
-	}
-	b.WriteString(helpStyle.Render("↑/↓ move · enter configure · esc back"))
-	return b.String() + "\n"
 }
 
 func (m model) viewNameFlavor() string {

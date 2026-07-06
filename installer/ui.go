@@ -18,7 +18,6 @@ const (
 	screenDir
 	screenSelect
 	screenConflicts
-	screenPickTemplate
 	screenFlavorForm
 	screenNameFlavor
 	screenDone
@@ -34,18 +33,19 @@ type planItem struct {
 	res        resolution
 }
 
-// rowKind distinguishes an installable component row from the action row that
-// opens the "add new flavor" flow.
+// rowKind distinguishes an installable component row from a flavor-template row
+// (listed under "Add New Flavor" — selecting one starts the create flow).
 type rowKind int
 
 const (
 	rowComponent rowKind = iota
-	rowAddFlavor
+	rowTemplate
 )
 
 type listRow struct {
 	kind rowKind
 	comp Component // valid when kind == rowComponent
+	tpl  Template  // valid when kind == rowTemplate
 }
 
 type model struct {
@@ -73,7 +73,6 @@ type model struct {
 
 	// flavor-create / edit flow
 	form        flavorForm
-	pickCursor  int
 	pendingTpl  Template
 	nameInput   textinput.Model
 	editingInst *FlavorInstance // non-nil when editing an existing flavor's choices
@@ -88,6 +87,8 @@ type model struct {
 	results       []string
 	err           error
 	quit          bool
+
+	width, height int // terminal size (from WindowSizeMsg)
 }
 
 var (
@@ -98,6 +99,12 @@ var (
 	okStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	warnStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	dimStyle    = lipgloss.NewStyle().Faint(true)
+	panelStyle  = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("39")).
+			Padding(0, 1).
+			MarginLeft(2).
+			Width(38)
 )
 
 func newModel(sourceClaude string, comps []Component, templates []Template) model {
@@ -166,9 +173,14 @@ func (m *model) refresh() {
 	for _, f := range m.flavors {
 		m.rows = append(m.rows, listRow{kind: rowComponent, comp: f.asComponent()})
 	}
-	m.rows = append(m.rows, listRow{kind: rowAddFlavor})
+	for _, t := range m.templates {
+		m.rows = append(m.rows, listRow{kind: rowTemplate, tpl: t})
+	}
 	if m.cursor >= len(m.rows) {
 		m.cursor = len(m.rows) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
 	}
 }
 
@@ -176,6 +188,9 @@ func (m model) Init() tea.Cmd { return nil }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		return m, nil
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC {
 			m.quit = true
@@ -190,8 +205,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSelect(msg)
 		case screenConflicts:
 			return m.updateConflicts(msg)
-		case screenPickTemplate:
-			return m.updatePickTemplate(msg)
 		case screenFlavorForm:
 			return m.updateFlavorForm(msg)
 		case screenNameFlavor:
@@ -261,6 +274,12 @@ func (m model) updateDir(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(m.rows) == 0 || m.cursor < 0 || m.cursor >= len(m.rows) {
+		if msg.String() == "esc" {
+			m.screen = screenScope
+		}
+		return m, nil
+	}
 	if msg.String() != "d" {
 		m.pendingDelete = "" // any non-'d' key cancels a pending delete
 	}
@@ -277,8 +296,8 @@ func (m model) updateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.flash = ""
 	case " ":
-		if row.kind == rowAddFlavor {
-			return m.openCreate()
+		if row.kind == rowTemplate {
+			return m.beginCreate(row.tpl)
 		}
 		m.selected[row.comp.RelPath] = !m.selected[row.comp.RelPath]
 	case "a":
@@ -301,8 +320,8 @@ func (m model) updateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenScope
 	case "enter":
-		if row.kind == rowAddFlavor {
-			return m.openCreate()
+		if row.kind == rowTemplate {
+			return m.beginCreate(row.tpl)
 		}
 		return m.buildPlan()
 	}
@@ -311,33 +330,14 @@ func (m model) updateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // ---- flavor create flow -----------------------------------------------------
 
-func (m model) openCreate() (tea.Model, tea.Cmd) {
-	if len(m.templates) == 0 {
-		m.flash = "no flavorable skills found (a skill needs install.py + flavor.json)"
-		return m, nil
-	}
-	m.pickCursor = 0
-	m.screen = screenPickTemplate
-	return m, nil
-}
-
-func (m model) updatePickTemplate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "up", "k":
-		if m.pickCursor > 0 {
-			m.pickCursor--
-		}
-	case "down", "j":
-		if m.pickCursor < len(m.templates)-1 {
-			m.pickCursor++
-		}
-	case "esc":
-		m.screen = screenSelect
-	case "enter":
-		m.pendingTpl = m.templates[m.pickCursor]
-		m.form = newFlavorForm(m.pendingTpl.Schema, nil)
-		m.screen = screenFlavorForm
-	}
+// beginCreate opens the flavor form for a chosen template.
+func (m model) beginCreate(tpl Template) (tea.Model, tea.Cmd) {
+	m.pendingTpl = tpl
+	m.editingInst = nil
+	m.form = newFlavorForm(tpl.Schema, nil)
+	m.err = nil
+	m.flash = ""
+	m.screen = screenFlavorForm
 	return m, nil
 }
 
