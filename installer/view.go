@@ -140,42 +140,16 @@ func (m model) viewSelect() string {
 }
 
 // hoverPanel returns the side-panel content for the row under the cursor: a
-// template's options preview, or a created flavor's selections. Empty for basic
-// component rows.
+// created flavor's selections. Empty for everything else (basic components and
+// the "Add New Flavor" template rows).
 func (m model) hoverPanel() string {
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return ""
 	}
-	switch r := m.rows[m.cursor]; {
-	case r.kind == rowTemplate:
-		return m.templatePanel(r.tpl)
-	case r.kind == rowComponent && r.comp.Flavor != nil:
+	if r := m.rows[m.cursor]; r.kind == rowComponent && r.comp.Flavor != nil {
 		return m.flavorPanel(r.comp.Flavor)
 	}
 	return ""
-}
-
-// templatePanel previews a flavor template: what its options are and their
-// defaults, so you can see what "create" would configure before starting.
-func (m model) templatePanel(tpl Template) string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render(tpl.Name) + "\n")
-	kind := "skill flavor template"
-	if tpl.Target == "mcp" {
-		kind = "MCP server flavor template"
-	}
-	b.WriteString(dimStyle.Render(kind) + "\n")
-	b.WriteString("\n" + groupStyle.Render("Options") + "\n")
-	for _, o := range tpl.Schema.Options {
-		b.WriteString(activeStyle.Render(o.Label) + "\n")
-		meta := string(o.Type)
-		if len(o.Default) > 0 {
-			meta += " · default: " + flavorValueString(o, o.defaultValue())
-		}
-		b.WriteString("  " + dimStyle.Render(meta) + "\n")
-	}
-	b.WriteString("\n" + okStyle.Render("enter → configure & create"))
-	return panelStyle.Render(strings.TrimRight(b.String(), "\n"))
 }
 
 // flavorPanel renders a flavor instance's saved selections. When the source

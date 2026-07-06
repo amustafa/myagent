@@ -85,16 +85,13 @@ func TestFlavorPanelStacksBelowWhenNarrow(t *testing.T) {
 	}
 }
 
-func TestTemplatePanelPreviewsOptions(t *testing.T) {
+func TestNoPanelOnTemplateRow(t *testing.T) {
 	m, _, templateRow := panelSetup(t, 120)
 	m.cursor = templateRow
-	out := m.viewSelect()
-	// Hovering a template previews its options (not a created flavor's selections).
-	if !strings.Contains(out, "Options") || !strings.Contains(out, "configure & create") {
-		t.Errorf("expected a template options preview, got:\n%s", out)
-	}
-	if strings.Contains(out, "Selections") {
-		t.Errorf("template preview should not show instance 'Selections':\n%s", out)
+	// The "Add New Flavor" template rows show no side panel — the panel is only
+	// for existing flavor instances.
+	if strings.Contains(m.viewSelect(), "Selections") || strings.Contains(m.viewSelect(), "Options") {
+		t.Errorf("no panel should appear on a template row:\n%s", m.viewSelect())
 	}
 }
 
