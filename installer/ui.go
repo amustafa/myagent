@@ -91,7 +91,7 @@ func newModel(sourceClaude string, comps []Component) model {
 func (m model) enterSelect() model {
 	m.manifest = loadManifest(m.targetClaude)
 	for i, c := range m.comps {
-		state, _ := classifyDest(m.targetClaude, c)
+		state, _ := classifyComponent(m.targetClaude, c)
 		isInstalled := state == destLinkedToUs
 		m.installed[i] = isInstalled
 		m.selected[i] = isInstalled
@@ -210,7 +210,7 @@ func (m model) updateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateConflicts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	idx := m.conflictQueue[m.conflictPos]
-	choices := choicesFor(m.plan[idx].state)
+	choices := choicesForComponent(m.plan[idx].comp, m.plan[idx].state)
 	switch msg.String() {
 	case "up", "k":
 		if m.choiceCursor > 0 {
@@ -237,7 +237,7 @@ func (m model) buildPlan() (tea.Model, tea.Cmd) {
 	m.plan = nil
 	m.conflictQueue = nil
 	for i, c := range m.comps {
-		state, linkTarget := classifyDest(m.targetClaude, c)
+		state, linkTarget := classifyComponent(m.targetClaude, c)
 		checked := m.selected[i]
 		item := planItem{comp: c, state: state, linkTarget: linkTarget}
 		switch {
@@ -274,18 +274,18 @@ func (m model) runPlan() (tea.Model, tea.Cmd) {
 	m.results = nil
 	for _, item := range m.plan {
 		if item.res == resSkip && item.state == destLinkedToUs {
-			m.recordSymlink(item.comp) // backfill pre-existing installs into the manifest
+			m.recordInstall(item.comp) // backfill pre-existing installs into the manifest
 			m.results = append(m.results, fmt.Sprintf("✓ %s — already installed", item.comp.RelPath))
 			continue
 		}
-		msg, err := apply(m.targetClaude, item.comp, item.res)
+		msg, err := applyComponent(m.targetClaude, item.comp, item.res)
 		if err != nil {
 			m.results = append(m.results, fmt.Sprintf("✗ %s — %v", item.comp.RelPath, err))
 			continue
 		}
 		switch item.res {
 		case resInstall, resOverwrite, resBackup:
-			m.recordSymlink(item.comp)
+			m.recordInstall(item.comp)
 		case resRemove:
 			m.manifest.forget(item.comp.RelPath)
 		}
@@ -300,10 +300,15 @@ func (m model) runPlan() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// recordSymlink notes a symlink-kind install in the manifest.
-func (m model) recordSymlink(c Component) {
+// recordInstall notes an install in the manifest, tagged by kind so
+// reconciliation knows whether to check for a symlink or an MCP config entry.
+func (m model) recordInstall(c Component) {
+	kind := "symlink"
+	if isMCP(c) {
+		kind = "mcp"
+	}
 	m.manifest.record(c.RelPath, InstanceRecord{
-		Kind:        "symlink",
+		Kind:        kind,
 		Source:      c.Source,
 		InstalledAt: nowStamp(),
 		Commit:      m.commit,

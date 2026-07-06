@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // componentType describes a category of installable artifact that lives under
@@ -23,6 +24,7 @@ var knownTypes = []componentType{
 	{dir: "agents", label: "Agents"},
 	{dir: "hooks", label: "Hooks"},
 	{dir: "prompts", label: "Prompts"},
+	{dir: "mcp", label: "MCP Servers"},
 }
 
 // Component is a single installable unit: one skill directory, one command
@@ -74,6 +76,11 @@ func scanComponents(sourceClaude string) ([]Component, error) {
 		for _, e := range entries {
 			name := e.Name()
 			if name == "" || name[0] == '.' {
+				continue
+			}
+			// MCP servers are declared as .json files; skip a README or any
+			// other doc that lives alongside them in .claude/mcp/.
+			if t.dir == "mcp" && !strings.HasSuffix(name, ".json") {
 				continue
 			}
 			out = append(out, Component{
