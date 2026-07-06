@@ -253,12 +253,13 @@ func (m model) rowTags(c Component) string {
 func (m model) viewNameFlavor() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Name this flavor") + "\n\n")
-	b.WriteString(dimStyle.Render(fmt.Sprintf("a named recipe from %q — must be unique", m.pendingTpl.Name)) + "\n\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("a named recipe from the %q template — must be unique", m.pendingTpl.Name)) + "\n")
+	b.WriteString(dimStyle.Render("this becomes the installed skill's name.") + "\n\n")
 	b.WriteString(m.nameInput.View() + "\n")
 	if m.err != nil {
 		b.WriteString(warnStyle.Render(m.err.Error()) + "\n")
 	}
-	b.WriteString(helpStyle.Render("enter generate · esc back to form · ctrl+c quit"))
+	b.WriteString(helpStyle.Render("enter → configure options · esc cancel · ctrl+c quit"))
 	return b.String() + "\n"
 }
 

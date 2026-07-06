@@ -291,7 +291,7 @@ func (f flavorForm) view() string {
 	// Submit row.
 	submit := "Submit"
 	if f.onSubmitRow() {
-		submit = activeStyle.Render("▸ Submit — name & generate")
+		submit = activeStyle.Render("▸ Submit — create flavor")
 	} else {
 		submit = "  " + submit
 	}

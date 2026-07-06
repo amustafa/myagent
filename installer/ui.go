@@ -74,6 +74,7 @@ type model struct {
 	// flavor-create / edit flow
 	form        flavorForm
 	pendingTpl  Template
+	pendingName string // flavor name entered before the options form (create flow)
 	nameInput   textinput.Model
 	editingInst *FlavorInstance // non-nil when editing an existing flavor's choices
 
@@ -341,15 +342,19 @@ func (m model) updateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // ---- flavor create flow -----------------------------------------------------
 
-// beginCreate opens the flavor form for a chosen template.
+// beginCreate starts the create flow by asking for a name first, then the
+// options. Naming up front makes it a dedicated, unmissable step (rather than a
+// screen buried after a long options form).
 func (m model) beginCreate(tpl Template) (tea.Model, tea.Cmd) {
 	m.pendingTpl = tpl
 	m.editingInst = nil
-	m.form = newFlavorForm(tpl.Schema, nil)
+	m.nameInput.SetValue(tpl.Name) // sensible default; the user can rename
+	m.nameInput.CursorEnd()
+	m.nameInput.Focus()
 	m.err = nil
 	m.flash = ""
-	m.screen = screenFlavorForm
-	return m, nil
+	m.screen = screenNameFlavor
+	return m, textinput.Blink
 }
 
 func (m model) updateFlavorForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -364,14 +369,25 @@ func (m model) updateFlavorForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.editingInst != nil {
 			return m.doEditSubmit()
 		}
-		m.nameInput.SetValue(m.pendingTpl.Name)
-		m.nameInput.CursorEnd()
-		m.nameInput.Focus()
-		m.err = nil
-		m.screen = screenNameFlavor
-		return m, textinput.Blink
+		return m.doCreateSubmit()
 	}
 	return m, cmd
+}
+
+// doCreateSubmit renders the new flavor using the name collected up front and
+// the options from the form.
+func (m model) doCreateSubmit() (tea.Model, tea.Cmd) {
+	inst, err := createFlavor(m.pendingTpl, m.pendingName, m.form.values, m.commit)
+	if err != nil {
+		m.flash = "create failed: " + err.Error()
+		m.screen = screenSelect
+		return m, nil
+	}
+	m.flavors = listFlavors()
+	m.refresh()
+	m.flash = "created flavor " + inst.Name + " — check it to install here"
+	m.screen = screenSelect
+	return m, nil
 }
 
 // templateFor finds the flavor template that produced (or could re-render) a
@@ -426,7 +442,7 @@ func (m model) doEditSubmit() (tea.Model, tea.Cmd) {
 func (m model) updateNameFlavor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
-		m.screen = screenFlavorForm
+		m.screen = screenSelect // cancel back to the list
 		return m, nil
 	case tea.KeyEnter:
 		name := strings.TrimSpace(m.nameInput.Value())
@@ -434,16 +450,14 @@ func (m model) updateNameFlavor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("name must be non-empty with no spaces or slashes")
 			return m, nil
 		}
-		inst, err := createFlavor(m.pendingTpl, name, m.form.values, m.commit)
-		if err != nil {
-			m.err = err
+		if flavorExists(name) {
+			m.err = fmt.Errorf("a flavor named %q already exists — pick another", name)
 			return m, nil
 		}
+		m.pendingName = name
 		m.err = nil
-		m.flavors = listFlavors()
-		m.refresh()
-		m.flash = "created flavor " + inst.Name + " — check it to install here"
-		m.screen = screenSelect
+		m.form = newFlavorForm(m.pendingTpl.Schema, nil) // now collect options
+		m.screen = screenFlavorForm
 		return m, nil
 	}
 	var cmd tea.Cmd
