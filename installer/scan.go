@@ -36,6 +36,55 @@ type Component struct {
 	Source  string // absolute source path
 	RelPath string // path relative to .claude/, e.g. "skills/grill-me"
 	IsDir   bool
+
+	// Flavor is set when this component is a generated flavor instance rather
+	// than a basic repo component; its Source points at the registry render dir.
+	Flavor *FlavorInstance
+}
+
+// Template is a flavorable source skill: one that ships install.py + flavor.json.
+// Templates never install directly — they seed generated flavors via the
+// "Add new flavor" flow.
+type Template struct {
+	Name   string
+	Dir    string        // absolute source skill dir
+	Schema *FlavorSchema // parsed flavor.json
+}
+
+// isFlavorable reports whether a skill directory carries both the render script
+// and the schema, marking it a flavor template rather than a basic component.
+func isFlavorable(dir string) bool {
+	_, e1 := os.Stat(filepath.Join(dir, flavorRenderFile))
+	_, e2 := os.Stat(filepath.Join(dir, flavorSchemaFile))
+	return e1 == nil && e2 == nil
+}
+
+// scanTemplates finds flavorable source skills (those shipping install.py +
+// flavor.json) and parses their schemas. A skill whose schema fails to parse is
+// skipped rather than aborting the whole scan.
+func scanTemplates(sourceClaude string) ([]Template, error) {
+	skillsDir := filepath.Join(sourceClaude, "skills")
+	entries, err := os.ReadDir(skillsDir)
+	if err != nil {
+		return nil, nil // no skills dir — no templates
+	}
+	var out []Template
+	for _, e := range entries {
+		if !e.IsDir() || e.Name()[0] == '.' {
+			continue
+		}
+		dir := filepath.Join(skillsDir, e.Name())
+		if !isFlavorable(dir) {
+			continue
+		}
+		schema, err := parseFlavorSchema(dir)
+		if err != nil {
+			continue
+		}
+		out = append(out, Template{Name: e.Name(), Dir: dir, Schema: schema})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
 
 // findSourceClaude walks up from start looking for a directory that contains a
@@ -76,11 +125,15 @@ func scanComponents(sourceClaude string) ([]Component, error) {
 			if name == "" || name[0] == '.' {
 				continue
 			}
+			full := filepath.Join(typeDir, name)
+			if e.IsDir() && isFlavorable(full) {
+				continue // a flavor template, surfaced via scanTemplates instead
+			}
 			out = append(out, Component{
 				Type:    t.dir,
 				Label:   t.label,
 				Name:    name,
-				Source:  filepath.Join(typeDir, name),
+				Source:  full,
 				RelPath: filepath.Join(t.dir, name),
 				IsDir:   e.IsDir(),
 			})

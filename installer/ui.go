@@ -18,12 +18,15 @@ const (
 	screenDir
 	screenSelect
 	screenConflicts
+	screenPickTemplate
+	screenFlavorForm
+	screenNameFlavor
 	screenDone
 )
 
 // planItem pairs a chosen component with the resolution that will be applied
-// to it. Free destinations are pre-resolved to resInstall; conflicts are
-// resolved interactively on the conflicts screen.
+// to it. Free destinations are pre-resolved; conflicts are resolved on the
+// conflicts screen.
 type planItem struct {
 	comp       Component
 	state      destState
@@ -31,31 +34,59 @@ type planItem struct {
 	res        resolution
 }
 
+// rowKind distinguishes an installable component row from the action row that
+// opens the "add new flavor" flow.
+type rowKind int
+
+const (
+	rowComponent rowKind = iota
+	rowAddFlavor
+)
+
+type listRow struct {
+	kind rowKind
+	comp Component // valid when kind == rowComponent
+}
+
 type model struct {
 	sourceClaude string
-	comps        []Component
-	commit       string    // source repo commit at launch
-	manifest     *Manifest // install-state record for the chosen target
+	comps        []Component // basic (non-flavorable) components
+	templates    []Template  // flavorable source skills
+	commit       string      // source repo commit at launch
 
-	screen    screen
-	scope     int // 0 = global, 1 = project
-	selected  map[int]bool
-	installed map[int]bool // computed once the target root is known
+	flavors  []FlavorInstance // generated flavors from the global registry
+	manifest *Manifest        // install-state record for the chosen target
+
+	screen screen
+	scope  int // 0 = global, 1 = project
+
+	rows      []listRow
+	selected  map[string]bool // keyed by RelPath
+	installed map[string]bool // keyed by RelPath
+	updated   map[string]bool // flavor RelPath -> update available
 	cursor    int
 
 	dir        textinput.Model
 	candidates []string
 
-	targetClaude string // resolved destination .claude root
+	targetClaude string
+
+	// flavor-create flow
+	form       flavorForm
+	pickCursor int
+	pendingTpl Template
+	nameInput  textinput.Model
 
 	plan          []planItem
-	conflictQueue []int // indexes into plan needing a decision
+	conflictQueue []int
 	conflictPos   int
 	choiceCursor  int
 
-	results []string
-	err     error
-	quit    bool
+	flash         string
+	pendingDelete string // flavor name awaiting a confirm keypress
+	results       []string
+	err           error
+	quit          bool
 }
 
 var (
@@ -68,36 +99,76 @@ var (
 	dimStyle    = lipgloss.NewStyle().Faint(true)
 )
 
-func newModel(sourceClaude string, comps []Component) model {
+func newModel(sourceClaude string, comps []Component, templates []Template) model {
 	ti := textinput.New()
 	ti.Placeholder = "~/path/to/project   (Tab to complete)"
 	ti.Prompt = "› "
 	ti.CharLimit = 4096
 
+	name := textinput.New()
+	name.Prompt = "› "
+	name.CharLimit = 128
+
 	return model{
 		sourceClaude: sourceClaude,
 		comps:        comps,
+		templates:    templates,
 		commit:       sourceCommit(filepath.Dir(sourceClaude)),
 		screen:       screenScope,
-		selected:     make(map[int]bool, len(comps)),
-		installed:    make(map[int]bool, len(comps)),
+		selected:     map[string]bool{},
+		installed:    map[string]bool{},
+		updated:      map[string]bool{},
 		dir:          ti,
+		nameInput:    name,
 	}
 }
 
-// enterSelect computes install status against the now-known target root and
-// moves to the selection screen. Already-installed components start checked so
-// the form reflects reality and re-running is idempotent.
+// installables is the flat list of everything that can be symlinked into a
+// target: basic components plus each generated flavor rendered dir.
+func (m model) installables() []Component {
+	out := append([]Component(nil), m.comps...)
+	for _, f := range m.flavors {
+		out = append(out, f.asComponent())
+	}
+	return out
+}
+
+// enterSelect loads registry + manifest for the chosen target and builds the
+// list. Already-installed items start checked so re-running is idempotent.
 func (m model) enterSelect() model {
 	m.manifest = loadManifest(m.targetClaude)
-	for i, c := range m.comps {
+	m.flavors = listFlavors()
+	m.refresh()
+	m.screen = screenSelect
+	m.cursor = 0
+	return m
+}
+
+// refresh recomputes install/update status and rebuilds the row list. It
+// preserves existing selections and defaults new rows to their installed state.
+func (m *model) refresh() {
+	for _, c := range m.installables() {
 		state, _ := classifyDest(m.targetClaude, c)
 		isInstalled := state == destLinkedToUs
-		m.installed[i] = isInstalled
-		m.selected[i] = isInstalled
+		m.installed[c.RelPath] = isInstalled
+		if _, ok := m.selected[c.RelPath]; !ok {
+			m.selected[c.RelPath] = isInstalled
+		}
+		if c.Flavor != nil {
+			m.updated[c.RelPath] = c.Flavor.updateAvailable(m.commit)
+		}
 	}
-	m.screen = screenSelect
-	return m
+	m.rows = m.rows[:0]
+	for _, c := range m.comps {
+		m.rows = append(m.rows, listRow{kind: rowComponent, comp: c})
+	}
+	for _, f := range m.flavors {
+		m.rows = append(m.rows, listRow{kind: rowComponent, comp: f.asComponent()})
+	}
+	m.rows = append(m.rows, listRow{kind: rowAddFlavor})
+	if m.cursor >= len(m.rows) {
+		m.cursor = len(m.rows) - 1
+	}
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -118,6 +189,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSelect(msg)
 		case screenConflicts:
 			return m.updateConflicts(msg)
+		case screenPickTemplate:
+			return m.updatePickTemplate(msg)
+		case screenFlavorForm:
+			return m.updateFlavorForm(msg)
+		case screenNameFlavor:
+			return m.updateNameFlavor(msg)
 		case screenDone:
 			if msg.Type == tea.KeyEnter || msg.String() == "q" {
 				return m, tea.Quit
@@ -140,11 +217,10 @@ func (m model) updateScope(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.targetClaude = filepath.Join(home, ".claude")
 			return m.enterSelect(), nil
-		} else {
-			m.dir.Focus()
-			m.screen = screenDir
-			return m, textinput.Blink
 		}
+		m.dir.Focus()
+		m.screen = screenDir
+		return m, textinput.Blink
 	}
 	return m, nil
 }
@@ -179,32 +255,177 @@ func (m model) updateDir(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.dir, cmd = m.dir.Update(msg)
-	m.candidates = nil // typing invalidates the last completion hint
+	m.candidates = nil
 	return m, cmd
 }
 
 func (m model) updateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() != "d" {
+		m.pendingDelete = "" // any non-'d' key cancels a pending delete
+	}
+	row := m.rows[m.cursor]
 	switch msg.String() {
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
 		}
+		m.flash = ""
 	case "down", "j":
-		if m.cursor < len(m.comps)-1 {
+		if m.cursor < len(m.rows)-1 {
 			m.cursor++
 		}
+		m.flash = ""
 	case " ":
-		m.selected[m.cursor] = !m.selected[m.cursor]
+		if row.kind == rowAddFlavor {
+			return m.openCreate()
+		}
+		m.selected[row.comp.RelPath] = !m.selected[row.comp.RelPath]
 	case "a":
 		all := !m.allSelected()
-		for i := range m.comps {
-			m.selected[i] = all
+		for _, c := range m.installables() {
+			m.selected[c.RelPath] = all
+		}
+	case "u":
+		if row.kind == rowComponent && row.comp.Flavor != nil && m.updated[row.comp.RelPath] {
+			return m.doUpdate(*row.comp.Flavor)
+		}
+	case "d":
+		if row.kind == rowComponent && row.comp.Flavor != nil {
+			return m.doDelete(row.comp.Flavor.Name)
 		}
 	case "esc":
 		m.screen = screenScope
 	case "enter":
+		if row.kind == rowAddFlavor {
+			return m.openCreate()
+		}
 		return m.buildPlan()
 	}
+	return m, nil
+}
+
+// ---- flavor create flow -----------------------------------------------------
+
+func (m model) openCreate() (tea.Model, tea.Cmd) {
+	if len(m.templates) == 0 {
+		m.flash = "no flavorable skills found (a skill needs install.py + flavor.json)"
+		return m, nil
+	}
+	m.pickCursor = 0
+	m.screen = screenPickTemplate
+	return m, nil
+}
+
+func (m model) updatePickTemplate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.pickCursor > 0 {
+			m.pickCursor--
+		}
+	case "down", "j":
+		if m.pickCursor < len(m.templates)-1 {
+			m.pickCursor++
+		}
+	case "esc":
+		m.screen = screenSelect
+	case "enter":
+		m.pendingTpl = m.templates[m.pickCursor]
+		m.form = newFlavorForm(m.pendingTpl.Schema, nil)
+		m.screen = screenFlavorForm
+	}
+	return m, nil
+}
+
+func (m model) updateFlavorForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	var res formResult
+	m.form, cmd, res = m.form.update(msg)
+	switch res {
+	case frCancel:
+		m.screen = screenSelect
+	case frSubmit:
+		m.nameInput.SetValue(m.pendingTpl.Name)
+		m.nameInput.CursorEnd()
+		m.nameInput.Focus()
+		m.err = nil
+		m.screen = screenNameFlavor
+		return m, textinput.Blink
+	}
+	return m, cmd
+}
+
+func (m model) updateNameFlavor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.screen = screenFlavorForm
+		return m, nil
+	case tea.KeyEnter:
+		name := strings.TrimSpace(m.nameInput.Value())
+		if name == "" || strings.ContainsAny(name, "/\\ ") {
+			m.err = fmt.Errorf("name must be non-empty with no spaces or slashes")
+			return m, nil
+		}
+		inst, err := createFlavor(m.pendingTpl, name, m.form.values, m.commit)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.err = nil
+		m.flavors = listFlavors()
+		m.refresh()
+		m.flash = "created flavor " + inst.Name + " — check it to install here"
+		m.screen = screenSelect
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.nameInput, cmd = m.nameInput.Update(msg)
+	return m, cmd
+}
+
+// doUpdate re-renders a flavor from its saved input against the current source.
+func (m model) doUpdate(inst FlavorInstance) (tea.Model, tea.Cmd) {
+	updated, err := updateFlavor(inst, m.commit)
+	if err != nil {
+		m.flash = "update failed: " + err.Error()
+		return m, nil
+	}
+	// If it's installed here, refresh the manifest commit too.
+	rel := updated.asComponent().RelPath
+	if m.installed[rel] {
+		m.recordFlavor(updated.asComponent(), updated)
+		_ = m.manifest.save()
+	}
+	m.flavors = listFlavors()
+	m.refresh()
+	m.flash = "updated flavor " + inst.Name + " (re-rendered at " + m.commit + ")"
+	return m, nil
+}
+
+// doDelete removes a generated flavor from the registry (and unlinks it from the
+// current target if installed). Requires a confirming second 'd'.
+func (m model) doDelete(name string) (tea.Model, tea.Cmd) {
+	if m.pendingDelete != name {
+		m.pendingDelete = name
+		m.flash = "press d again to delete flavor " + name
+		return m, nil
+	}
+	m.pendingDelete = ""
+	rel := filepath.Join("skills", name)
+	if m.installed[rel] {
+		_ = os.Remove(filepath.Join(m.targetClaude, rel))
+		m.manifest.forget(rel)
+		_ = m.manifest.save()
+	}
+	if err := deleteFlavor(name); err != nil {
+		m.flash = "delete failed: " + err.Error()
+		return m, nil
+	}
+	delete(m.selected, rel)
+	delete(m.installed, rel)
+	delete(m.updated, rel)
+	m.flavors = listFlavors()
+	m.refresh()
+	m.flash = "deleted flavor " + name
 	return m, nil
 }
 
@@ -231,27 +452,26 @@ func (m model) updateConflicts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// buildPlan classifies every selected component's destination, auto-resolving
-// free ones and queueing the rest for interactive decisions.
+// buildPlan classifies every selected component and queues genuine conflicts.
 func (m model) buildPlan() (tea.Model, tea.Cmd) {
 	m.plan = nil
 	m.conflictQueue = nil
-	for i, c := range m.comps {
+	for _, c := range m.installables() {
 		state, linkTarget := classifyDest(m.targetClaude, c)
-		checked := m.selected[i]
+		checked := m.selected[c.RelPath]
 		item := planItem{comp: c, state: state, linkTarget: linkTarget}
 		switch {
 		case checked && state == destFree:
 			item.res = resInstall
 		case checked && state == destLinkedToUs:
-			item.res = resSkip // already installed — idempotent no-op
-		case checked: // destOccupied or destLinkedElse — genuine conflict
-			item.res = resSkip // provisional; user decides on the conflicts screen
+			item.res = resSkip
+		case checked:
+			item.res = resSkip
 			m.conflictQueue = append(m.conflictQueue, len(m.plan))
 		case !checked && state == destLinkedToUs:
-			item.res = resRemove // unchecked an installed component — uninstall
+			item.res = resRemove
 		default:
-			continue // unchecked and not installed by us — nothing to do
+			continue
 		}
 		m.plan = append(m.plan, item)
 	}
@@ -269,12 +489,11 @@ func (m model) buildPlan() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// runPlan applies every resolution in the plan and records the outcome.
 func (m model) runPlan() (tea.Model, tea.Cmd) {
 	m.results = nil
 	for _, item := range m.plan {
 		if item.res == resSkip && item.state == destLinkedToUs {
-			m.recordSymlink(item.comp) // backfill pre-existing installs into the manifest
+			m.recordInstall(item.comp)
 			m.results = append(m.results, fmt.Sprintf("✓ %s — already installed", item.comp.RelPath))
 			continue
 		}
@@ -285,7 +504,7 @@ func (m model) runPlan() (tea.Model, tea.Cmd) {
 		}
 		switch item.res {
 		case resInstall, resOverwrite, resBackup:
-			m.recordSymlink(item.comp)
+			m.recordInstall(item.comp)
 		case resRemove:
 			m.manifest.forget(item.comp.RelPath)
 		}
@@ -300,19 +519,31 @@ func (m model) runPlan() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// recordSymlink notes a symlink-kind install in the manifest.
-func (m model) recordSymlink(c Component) {
+// recordInstall notes an install in the manifest, distinguishing basic symlinks
+// from flavored (registry-rendered) instances.
+func (m model) recordInstall(c Component) {
+	if c.Flavor != nil {
+		m.recordFlavor(c, *c.Flavor)
+		return
+	}
 	m.manifest.record(c.RelPath, InstanceRecord{
-		Kind:        "symlink",
+		Kind: "symlink", Source: c.Source, InstalledAt: nowStamp(), Commit: m.commit,
+	})
+}
+
+func (m model) recordFlavor(c Component, inst FlavorInstance) {
+	m.manifest.record(c.RelPath, InstanceRecord{
+		Kind:        "flavored",
 		Source:      c.Source,
 		InstalledAt: nowStamp(),
-		Commit:      m.commit,
+		Commit:      inst.Meta.Commit,
+		Options:     map[string]any{"flavor": inst.Name},
 	})
 }
 
 func (m model) allSelected() bool {
-	for i := range m.comps {
-		if !m.selected[i] {
+	for _, c := range m.installables() {
+		if !m.selected[c.RelPath] {
 			return false
 		}
 	}

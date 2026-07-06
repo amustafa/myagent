@@ -62,6 +62,25 @@ ACTIVE_PHASES = {"spec", "spec_review", "awaiting_approval",
                  "build", "build_review", "integrate", "blocked"}
 
 
+def effective_defaults():
+    """DEFAULT_CONFIG overlaid with a flavored render's resolved config, if any.
+
+    A flavored copy of this skill ships scripts/flavor.resolved.json beside this
+    file; when present, its values become the seed defaults so the flavor's model
+    tiers / codex / test-cmd choices take effect on init.
+    """
+    cfg = json.loads(json.dumps(DEFAULT_CONFIG))  # deep copy
+    resolved = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "flavor.resolved.json")
+    try:
+        with open(resolved) as f:
+            for k, v in json.load(f).items():
+                cfg[k] = v
+    except (OSError, ValueError):
+        pass
+    return cfg
+
+
 def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -72,13 +91,14 @@ def slug(title):
 
 
 def load():
+    defaults = effective_defaults()
     if not os.path.exists(STATE):
-        return {"seq": 0, "workstreams": {}, "config": dict(DEFAULT_CONFIG)}
+        return {"seq": 0, "workstreams": {}, "config": dict(defaults)}
     with open(STATE) as f:
         data = json.load(f)
     # backfill config defaults so upgrades don't lose keys
     cfg = data.setdefault("config", {})
-    for k, v in DEFAULT_CONFIG.items():
+    for k, v in defaults.items():
         cfg.setdefault(k, v)
     return data
 

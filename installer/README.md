@@ -50,3 +50,40 @@ time, and the source repo's commit at install time.
 The manifest is a *record*, not the source of truth: it's reconciled against the
 filesystem on load, so a symlink you delete by hand is dropped from the manifest
 rather than lingering as a lie. Set `MYAGENTCFG_DIR` to relocate the store.
+
+## Flavors
+
+A skill can be **flavored** — configured at install time instead of shipping one
+fixed behavior. A skill is flavorable when it carries two extra files:
+
+- `flavor.json` — the option schema (what's configurable and how).
+- `install.py` — a renderer the installer runs to materialize a configured copy.
+
+Flavorable skills don't appear in the plain list; they're **templates** you turn
+into named flavors via `＋ Add new flavor`:
+
+1. Pick a flavorable skill → fill the form → name the flavor.
+2. The installer runs `install.py` (option values as JSON on stdin, `--dest` a
+   render directory) and stores the result globally under
+   `${MYAGENTCFG_DIR}/flavors/<name>/` (`input.json` + `meta.json` + `rendered/`).
+3. The flavor then shows up in the **Flavors** section of the list and is
+   installed/uninstalled into the current environment like any other component
+   (a symlink from `rendered/` into `<target>/.claude/skills/<name>/`).
+
+Per-flavor row actions: `space` install/uninstall · `u` update · `d` delete.
+
+### Option types
+
+`string`, `number` (with `min`/`max`/`integer`), `bool`, `path` (tab-completes),
+`enum-one`, `enum-or-custom` (pick a known value or type your own), `enum-set`
+(unordered multi), `enum-list` (ordered multi — reorder with `<`/`>`). Any option
+can carry `showIf` to appear only when another option has a given value, plus
+`required`/`regex` validation.
+
+### Updating on drift
+
+A flavor is *frozen* at the source commit it was rendered from (basic skills, by
+contrast, symlink live source and are always current). When the source repo moves
+to a new commit, the flavor row shows `update available`; `u` re-runs `install.py`
+with the saved `input.json` and regenerates `rendered/` in place — so every
+environment symlinking it picks up the change with no re-install.
