@@ -119,19 +119,19 @@ func TestCreateFlavorFlow(t *testing.T) {
 		t.Fatalf("expected cursor on a template row, got %+v", m.rows[m.cursor])
 	}
 
-	m = send(t, m, key(" ")) // selecting a template goes straight to its form
-	if m.screen != screenFlavorForm {
-		t.Fatalf("want screenFlavorForm, got %d", m.screen)
-	}
-
-	// The stub has one option (label, default "hi"); move to Submit and submit.
-	m = send(t, m, special(tea.KeyDown))  // onto the Submit row
-	m = send(t, m, special(tea.KeyEnter)) // submit -> name screen
+	m = send(t, m, key(" ")) // selecting a template asks for a name first
 	if m.screen != screenNameFlavor {
-		t.Fatalf("want screenNameFlavor, got %d (err=%v)", m.screen, m.err)
+		t.Fatalf("want screenNameFlavor first, got %d", m.screen)
 	}
 
-	m = send(t, m, special(tea.KeyEnter)) // accept default name "stub"
+	m = send(t, m, special(tea.KeyEnter)) // accept default name "stub" -> options form
+	if m.screen != screenFlavorForm {
+		t.Fatalf("want screenFlavorForm after naming, got %d (err=%v)", m.screen, m.err)
+	}
+
+	// The stub has one option (label, default "hi"); move to Submit and create.
+	m = send(t, m, special(tea.KeyDown))  // onto the Submit row
+	m = send(t, m, special(tea.KeyEnter)) // submit -> create
 	if m.screen != screenSelect {
 		t.Fatalf("want screenSelect after create, got %d (err=%v)", m.screen, m.err)
 	}
