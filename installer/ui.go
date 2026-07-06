@@ -148,7 +148,7 @@ func (m model) enterSelect() model {
 // preserves existing selections and defaults new rows to their installed state.
 func (m *model) refresh() {
 	for _, c := range m.installables() {
-		state, _ := classifyDest(m.targetClaude, c)
+		state, _ := classifyComponent(m.targetClaude, c)
 		isInstalled := state == destLinkedToUs
 		m.installed[c.RelPath] = isInstalled
 		if _, ok := m.selected[c.RelPath]; !ok {
@@ -431,7 +431,7 @@ func (m model) doDelete(name string) (tea.Model, tea.Cmd) {
 
 func (m model) updateConflicts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	idx := m.conflictQueue[m.conflictPos]
-	choices := choicesFor(m.plan[idx].state)
+	choices := choicesForComponent(m.plan[idx].comp, m.plan[idx].state)
 	switch msg.String() {
 	case "up", "k":
 		if m.choiceCursor > 0 {
@@ -457,7 +457,7 @@ func (m model) buildPlan() (tea.Model, tea.Cmd) {
 	m.plan = nil
 	m.conflictQueue = nil
 	for _, c := range m.installables() {
-		state, linkTarget := classifyDest(m.targetClaude, c)
+		state, linkTarget := classifyComponent(m.targetClaude, c)
 		checked := m.selected[c.RelPath]
 		item := planItem{comp: c, state: state, linkTarget: linkTarget}
 		switch {
@@ -497,7 +497,7 @@ func (m model) runPlan() (tea.Model, tea.Cmd) {
 			m.results = append(m.results, fmt.Sprintf("✓ %s — already installed", item.comp.RelPath))
 			continue
 		}
-		msg, err := apply(m.targetClaude, item.comp, item.res)
+		msg, err := applyComponent(m.targetClaude, item.comp, item.res)
 		if err != nil {
 			m.results = append(m.results, fmt.Sprintf("✗ %s — %v", item.comp.RelPath, err))
 			continue
@@ -526,8 +526,12 @@ func (m model) recordInstall(c Component) {
 		m.recordFlavor(c, *c.Flavor)
 		return
 	}
+	kind := "symlink"
+	if isMCP(c) {
+		kind = "mcp" // reconciled by config presence, not a symlink
+	}
 	m.manifest.record(c.RelPath, InstanceRecord{
-		Kind: "symlink", Source: c.Source, InstalledAt: nowStamp(), Commit: m.commit,
+		Kind: kind, Source: c.Source, InstalledAt: nowStamp(), Commit: m.commit,
 	})
 }
 

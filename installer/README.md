@@ -39,6 +39,27 @@ go run . -list      # print discovered components, no TUI
 Re-running is safe: components already symlinked to this repo are detected,
 shown as installed, and left untouched unless you explicitly uncheck them.
 
+## MCP servers
+
+MCP servers are a different *kind* of component. A skill/command/agent is a file
+or directory **symlinked** into `.claude/`; an MCP server is a JSON definition
+**merged into** Claude Code's MCP config.
+
+Declare each server as one file under `.claude/mcp/<name>.json` (the file name is
+the server key; the contents are the server object as it appears in
+`mcpServers`). Installing writes it to:
+
+| Target | Config file | Claude scope |
+|--------|-------------|--------------|
+| Project | `<project>/.mcp.json` | project |
+| Global | `~/.claude.json` | user |
+
+Every other key in that file is preserved. Uninstalling (uncheck an installed
+server) deletes just that one `mcpServers` entry; a same-name/different-definition
+collision prompts *skip* or *overwrite*. See `.claude/mcp/README.md` for the
+definition format. (`claude mcp add` remains a fine manual alternative; this just
+version-controls your servers alongside the rest of the pack.)
+
 ## Install state
 
 Every apply is recorded in a per-environment manifest under

@@ -104,6 +104,9 @@ func (m model) viewSelect() string {
 			check = okStyle.Render("[x]")
 		}
 		name := c.Name
+		if isMCP(c) {
+			name = mcpServerName(c) // drop the .json for display
+		}
 		if i == m.cursor {
 			name = activeStyle.Render(name)
 		}
@@ -176,7 +179,7 @@ func (m model) viewNameFlavor() string {
 func (m model) viewConflicts() string {
 	idx := m.conflictQueue[m.conflictPos]
 	item := m.plan[idx]
-	choices := choicesFor(item.state)
+	choices := choicesForComponent(item.comp, item.state)
 
 	var b strings.Builder
 	b.WriteString(titleStyle.Render(fmt.Sprintf("Conflict %d of %d", m.conflictPos+1, len(m.conflictQueue))) + "\n\n")
@@ -185,7 +188,7 @@ func (m model) viewConflicts() string {
 
 	for i, r := range choices {
 		cursor := "  "
-		label := resolutionLabel(r)
+		label := resolutionLabel(item.comp, r)
 		if i == m.choiceCursor {
 			cursor = activeStyle.Render("▸ ")
 			label = activeStyle.Render(label)
@@ -211,6 +214,15 @@ func (m model) viewDone() string {
 }
 
 func describeState(item planItem) string {
+	if isMCP(item.comp) {
+		switch item.state {
+		case destLinkedToUs:
+			return "already installed — same definition in " + item.linkTarget
+		case destOccupied:
+			return "a different definition for this server exists in " + item.linkTarget
+		}
+		return ""
+	}
 	switch item.state {
 	case destLinkedToUs:
 		return "already installed — symlink points at this repo"
@@ -222,7 +234,20 @@ func describeState(item planItem) string {
 	return ""
 }
 
-func resolutionLabel(r resolution) string {
+func resolutionLabel(c Component, r resolution) string {
+	if isMCP(c) {
+		switch r {
+		case resSkip:
+			return "Skip — leave the MCP config untouched"
+		case resRemove:
+			return "Remove — delete this server from the MCP config (uninstall)"
+		case resOverwrite:
+			return "Overwrite — replace with this definition"
+		case resInstall:
+			return "Install — add this server to the MCP config"
+		}
+		return ""
+	}
 	switch r {
 	case resSkip:
 		return "Skip — leave it untouched"

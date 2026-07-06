@@ -115,7 +115,15 @@ func loadManifest(targetClaude string) *Manifest {
 // reconcile drops any recorded instance whose destination is no longer a symlink
 // (hand-deleted, replaced by a real file, etc.), keeping the record honest.
 func (m *Manifest) reconcile() {
-	for rel := range m.Instances {
+	for rel, rec := range m.Instances {
+		if rec.Kind == "mcp" {
+			// MCP installs aren't symlinks — verify the server is still in the
+			// target's MCP config instead.
+			if !mcpServerPresent(m.Target, rel) {
+				delete(m.Instances, rel)
+			}
+			continue
+		}
 		dest := filepath.Join(m.Target, rel)
 		info, err := os.Lstat(dest)
 		if err != nil || info.Mode()&os.ModeSymlink == 0 {
