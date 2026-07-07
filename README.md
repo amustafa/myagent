@@ -8,7 +8,7 @@ installs them into any project or globally via symlinks.
 ```
 .claude/skills/     Claude Code skills (some flavorable — configured at install time)
 .claude/agents/     subagents used by the orchestrate pipeline
-.claude/commands/   slash-command entrypoints (e.g. /orchestrate)
+.claude/prompts/    prompt frameworks, indexed into a `_index.md` you import from CLAUDE.md
 .claude/mcp/        MCP server definitions (merged into Claude's MCP config)
 installer/          Charm/Bubble Tea TUI that installs the above
 Makefile            top-level tasks (run / list / status / install / test / ci)
@@ -20,6 +20,7 @@ Makefile            top-level tasks (run / list / status / install / test / ci)
 |-------|--------------|
 | `grill-me` | Grilling session that stress-tests a plan against the existing domain model, sharpens terminology, and updates docs (`UBIQUITOUS_LANGUAGE.md`, ADRs) inline as decisions crystallise. |
 | `compact-smart` | Prepares a session-scoped, coding-aware compaction directive for continuing long-running work across milestones — use before `/compact`. |
+| `codex-computer-use` | Delegates computer-use / runtime operations (launching apps, booting simulators, screenshots, runtime inspection) to gpt-5.5 via the Codex CLI, keeping screenshot blobs and build spew out of your context. |
 | `orchestrate` | Turns the session into a **Manager** (Opus) driving a resumable spec → review → build → review → integrate pipeline across subagents (`architect`, `builder`, `spec-preflight`, `code-preflight`) with optional Codex as an external gating reviewer. Run `/orchestrate`. **Flavorable** — pick model tiers, codex on/off, etc. at install time. |
 
 ## Installer
