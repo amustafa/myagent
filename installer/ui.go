@@ -579,6 +579,7 @@ func (m model) buildPlan() (tea.Model, tea.Cmd) {
 
 func (m model) runPlan() (tea.Model, tea.Cmd) {
 	m.results = nil
+	promptsTouched := false
 	for _, item := range m.plan {
 		if item.res == resSkip && item.state == destLinkedToUs {
 			m.recordInstall(item.comp)
@@ -596,12 +597,27 @@ func (m model) runPlan() (tea.Model, tea.Cmd) {
 		case resRemove:
 			m.manifest.forget(item.comp.RelPath)
 		}
+		if item.comp.Type == "prompts" {
+			promptsTouched = true
+		}
 		m.results = append(m.results, fmt.Sprintf("• %s — %s", item.comp.RelPath, msg))
 	}
 	if err := m.manifest.save(); err != nil {
 		m.results = append(m.results, fmt.Sprintf("✗ could not write install state — %v", err))
 	} else {
 		m.results = append(m.results, dimStyle.Render("state: "+m.manifest.path))
+	}
+	// Keep the prompt aggregator (prompts/_index.md) in step with what's
+	// installed. Run it always so it self-heals drift, but only surface the
+	// activation hint when this plan actually changed a prompt.
+	if n, err := syncPromptsIndex(m.targetClaude, m.manifest); err != nil {
+		m.results = append(m.results, fmt.Sprintf("✗ could not update prompt index — %v", err))
+	} else if promptsTouched {
+		if n > 0 {
+			m.results = append(m.results, dimStyle.Render(fmt.Sprintf("prompts: %d linked in prompts/_index.md — add `@prompts/_index.md` to CLAUDE.md to activate", n)))
+		} else {
+			m.results = append(m.results, dimStyle.Render("prompts: none left — removed prompts/_index.md"))
+		}
 	}
 	m.screen = screenDone
 	return m, nil
