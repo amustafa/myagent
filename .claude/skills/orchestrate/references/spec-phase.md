@@ -1,8 +1,9 @@
 # Spec phase
 
-Goal: produce a spec that Codex signs off on with no blocking or major findings,
-then hold the approval gate. The Architect (Fable) writes; you (Manager) review,
-run Codex, triage, and loop.
+Goal: produce a spec that the external agent (`orch.py config external_agent`)
+signs off on with no blocking or major findings, then hold the approval gate.
+The Architect (Fable) writes; you (Manager) review, run the external agent,
+triage, and loop.
 
 Phases covered: `spec` → `spec_review` → `awaiting_approval`.
 
@@ -29,16 +30,17 @@ Phases covered: `spec` → `spec_review` → `awaiting_approval`.
 ## The review loop (`spec_review`)
 
 `orch.py set <id> phase spec_review`. Then repeat the produce→review→incorporate
-cycle until Codex is clean.
+cycle until the external agent is clean.
 
-Preflight and the Codex review are independent — if you spawn a `spec-preflight`
-subagent, run it and the `codex exec` spec review **concurrently** and consolidate
-when both return (see `references/mechanics.md`). For a small spec, the inline
-preflight below is cheaper than either.
+Preflight and the external-agent review are independent — if you spawn a
+`spec-preflight` subagent, run it and the external-agent spec review
+**concurrently** and consolidate when both return (see
+`references/mechanics.md`). For a small spec, the inline preflight below is
+cheaper than either.
 
 ### Step A — preflight (the cheap filter)
 
-Do this before every Codex call. Two options; pick by size/complexity:
+Do this before every external-agent call. Two options; pick by size/complexity:
 
 - **Light inline review (you, the Manager).** For small or straightforward
   specs, read `spec.md` and jot obvious issues into `reviews/preflight-r<N>.md`:
@@ -69,18 +71,21 @@ $(orch.py config codex_cmd) [ -m $(orch.py config models.reviewer) ] \
    gaps, missing requirements, contradictions, unhandled edge cases, security/
    data-loss risks, and untestable criteria. Tag each finding
    blocking|major|minor. End with a line: VERDICT: PASS or VERDICT: CHANGES." \
-  | tee <reviews>/codex-r<N>.md
+  | tee <reviews>/codex-r<N>.md < /dev/null
 ```
 
-For the `agy` backend, run the same prompt through `agy -p --sandbox` and save to
-`agy-r<N>.md` (see `references/agy.md`).
+(always redirect stdin — see `references/codex.md`'s "ALWAYS redirect stdin" note.)
+
+For the `agy` backend, read `$(orch.py config agy_cmd)` and run the same prompt
+through it (never `eval` the assembled command — see `references/agy.md`) and
+save to `agy-r<N>.md`.
 
 ### Step C — triage & consolidate
 
-Merge preflight + Codex findings into `reviews/consolidated-r<N>.md`, grouped by
-severity, de-duplicated. As Manager you arbitrate: mark any finding you judge a
-false positive or out-of-scope, with a one-line reason. What remains under
-**blocking** and **major** is what the next round must fix.
+Merge preflight + external-agent findings into `reviews/consolidated-r<N>.md`,
+grouped by severity, de-duplicated. As Manager you arbitrate: mark any finding
+you judge a false positive or out-of-scope, with a one-line reason. What remains
+under **blocking** and **major** is what the next round must fix.
 
 ### Step D — decide
 
@@ -112,7 +117,7 @@ escalation with `orch.py log`.
 
 ## Exit — the approval gate
 
-When Codex returns clean:
+When the external agent returns clean:
 
 1. `orch.py set <id> phase awaiting_approval`.
 2. Check `orch.py config auto_advance_to_build`:

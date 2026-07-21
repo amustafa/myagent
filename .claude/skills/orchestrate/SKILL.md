@@ -77,9 +77,10 @@ floor, then take the cheapest model that clears it; tiebreak
 intelligence > taste > cost. Two consequences you apply here:
 - **Reviewing Anthropic-written code with a different model.** The Builder is a
   `senior` (Anthropic) model, so *correctness* review is owned by the `reviewer`
-  tier — **gpt-5.5 via `codex review`** — not by an Anthropic subagent. In-house
-  `code-preflight` stays `senior` but is scoped to **structure/spec conformance**,
-  not correctness (see `references/adr/0001-cross-model-review-split.md`).
+  tier — **the configured external agent** (gpt-5.5 via `codex review`, or Gemini
+  3 via `agy`) — not by an Anthropic subagent. In-house `code-preflight` stays
+  `senior` but is scoped to **structure/spec conformance**, not correctness (see
+  `references/adr/0001-cross-model-review-split.md`).
 - **Escalate on output, not price.** If a subagent's output is below bar, redo it
   a tier up without asking — judge the output, not the price tag (see
   "Escalation" below). When a model is unavailable, fall **up** to the next that
@@ -124,15 +125,16 @@ per tier. Read the phase reference for whatever phase you're entering.
 NEW  ──▶  SPEC PHASE                         ──▶ [approval gate] ──▶ BUILD PHASE                          ──▶ INTEGRATE ──▶ DONE
           architect writes spec                                     builder implements
           → preflight (inline or subagent)                          → code-preflight subagent
-          → Codex review                                            → Codex review
+          → external-agent review                                   → external-agent review
           → fresh architect incorporates                            → fresh builder incorporates
-          → loop until Codex has no blocking/major                  → loop until Codex has no blocking
+          → loop until external agent has no blocking/major         → loop until external agent has no blocking
 ```
 
-Both phases share one shape: **produce → preflight review → Codex review →
-consolidate findings → fresh subagent incorporates → repeat until Codex is
-clean.** The only differences are which subagent produces the artifact and what
-Codex is pointed at (the spec file vs. the working-tree diff).
+Both phases share one shape: **produce → preflight review → external-agent
+review → consolidate findings → fresh subagent incorporates → repeat until the
+external agent is clean.** The only differences are which subagent produces the
+artifact and what the external agent is pointed at (the spec file vs. the
+working-tree diff).
 
 ## Phase routing
 
@@ -155,17 +157,21 @@ but the loop is always:
 1. **Produce / revise.** Spawn the producing subagent (architect or builder)
    with the artifact + consolidated findings from the previous round. Round 1
    has no findings — just the task/spec.
-2. **Preflight.** A *cheaper, in-house* pass before spending a Codex call.
+2. **Preflight.** A *cheaper, in-house* pass before spending an external-agent
+   call.
    - Spec phase: you may do a **light inline review yourself** for small specs,
      or spawn `spec-preflight` for anything substantial.
    - Build phase: **always** spawn `code-preflight` on the diff.
-   Preflight catches obvious gaps so Codex spends its attention on real issues.
-3. **Codex review.** Run Codex read-only over the artifact (see
-   `references/codex.md`). Save the raw report to the workstream's `reviews/`
-   folder as `codex-r<N>.md`. Codex is instructed to tag every finding with a
-   severity and to end with a machine-readable verdict line.
-4. **Triage & consolidate.** Merge preflight + Codex findings into one ordered
-   packet, `reviews/consolidated-r<N>.md`, grouped by severity. Drop
+   Preflight catches obvious gaps so the external agent spends its attention on
+   real issues.
+3. **External-agent review.** Run the configured external agent read-only over
+   the artifact (see `references/codex.md` for the `codex` backend,
+   `references/agy.md` for `agy`). Save the raw report to the workstream's
+   `reviews/` folder as `codex-r<N>.md` or `agy-r<N>.md` (name matches the
+   backend). It's instructed to tag every finding with a severity and to end
+   with a machine-readable verdict line.
+4. **Triage & consolidate.** Merge preflight + external-agent findings into one
+   ordered packet, `reviews/consolidated-r<N>.md`, grouped by severity. Drop
    duplicates. Note anything you judge a false positive and why (you're the
    Manager — you arbitrate).
 5. **Decide.**
@@ -236,11 +242,15 @@ fail or the merge conflicts — set `blocked` and report.
   external agent's verdict is what opens the gate. When `external_agent` is `none`,
   or the configured CLI isn't installed (see the startup probe), the in-house
   preflight review *becomes* the gate: loop on its severity-tagged findings
-  exactly the same way, exiting when no blocking/major remain.
+  exactly the same way, exiting when no blocking/major remain. **This fallback
+  never auto-integrates**, though — see build-phase.md's Exit section: a build
+  reviewed only by same-model preflight always stops for explicit user
+  confirmation before integration, regardless of `auto_advance_to_integrate`.
 - **Everything important lands on disk** under `.orchestrate/` before you end a
   turn, so any session or account can pick up exactly where you left off.
 - **Stay in the loop with the human.** Summarize each round in a few lines
-  (what the subagent produced, what Codex flagged, what you're doing next).
+  (what the subagent produced, what the external agent flagged, what you're
+  doing next).
   Don't dump raw reports into chat — point to the files in `reviews/`.
 
 ## Reference files

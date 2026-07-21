@@ -34,10 +34,12 @@ Two mechanisms this pipeline deliberately **avoids**:
 | `junior` | simple tasks | a light named subagent, or **`codex-runner`** |
 
 > The `reviewer`/`mechanical` rows above assume the `codex` backend. When
-> `external_agent` is `agy`, run it as **direct bash** `agy -p` (there's no
-> `agy-runner` subagent — the Manager holds the shell, so call it directly) and
-> use the **`agy-computer-use`** skill for the mechanical tier. See
-> `references/agy.md`.
+> `external_agent` is `agy`, the **reviewer** tier is **direct bash**
+> `agy -p --sandbox` (there's no `agy-runner` subagent — the Manager holds the
+> shell, so call it directly; keep `--sandbox` for every review call, it must
+> stay read-only) and the **mechanical** tier goes through the
+> **`agy-computer-use`** skill instead (which drops `--sandbox` deliberately,
+> since it needs to act on the machine). See `references/agy.md`.
 
 ## Decision guide
 

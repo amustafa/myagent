@@ -53,9 +53,11 @@ def resolve_config(opts):
         agy_model = opts.get("agy_model", "")
         reviewer = agy_model
         mechanical = agy_model
-    else:  # "none" — no external agent at all
+    elif external_agent == "none":
         reviewer = ""
         mechanical = ""
+    else:
+        raise ValueError(f"unsupported external_agent: {external_agent!r}")
 
     cfg = {
         "models": {

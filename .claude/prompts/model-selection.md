@@ -80,15 +80,19 @@ in the `codex-runner` subagent, since you can't spawn a gpt-5.5 agent directly.
 
 ```bash
 # General delegation / bulk mechanical work (read-only by default):
-codex exec -m <codex_model> -s read-only "<self-contained prompt>"
+codex exec -m <codex_model> -s read-only "<self-contained prompt>" < /dev/null
 
-# Purpose-built code review against a base branch:
-codex review --base <branch> "<review instructions>"
+# Purpose-built code review against a base branch (no custom prompt — combining
+# --base with a prompt argument errors; for a *directed* review, use codex exec
+# with an explicit `git diff <branch>...HEAD` instruction instead):
+codex review --base <branch> < /dev/null
 ```
 
 `<codex_model>` is configurable (e.g. `gpt-5-codex-max`) — treat "gpt-5.5" as
 whatever your Codex model is set to, not a hard-coded string. `codex exec` for
-general work, `codex review` for reviews. The sandbox is read-only by default;
+general work, `codex review` for a generic (undirected) review. Always redirect
+stdin (`< /dev/null`) — otherwise `codex exec`/`codex review` blocks forever
+waiting for input that never comes. The sandbox is read-only by default;
 widen it (`-s workspace-write`, `--full-auto`) only when the task must actually
 *do* things (see the `codex-computer-use` skill).
 

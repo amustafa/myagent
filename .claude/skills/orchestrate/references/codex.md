@@ -68,8 +68,12 @@ approval prompt, and `-s read-only` so a review can't touch files.
 > stdin. The report stays 0 bytes and the task looks "hung." This is a recurring
 > mistake; closing stdin is the fix, and it is harmless when stdin was empty
 > anyway. If a codex call ever appears to hang, check `codex-r<N>.stderr.log` for
-> that "Reading additional input" line — it means you forgot `< /dev/null`; kill
-> it (`pkill -f "codex exec"`) and rerun with the redirect.
+> that "Reading additional input" line — it means you forgot `< /dev/null`. Kill
+> only that call's process (e.g. `kill $CODEX_PID` if you backgrounded it with
+> `$!`, or find its PID with `pgrep -fn "codex exec.*<reviews-dir>/codex-r<N>"`
+> using a string specific to this invocation) and rerun with the redirect —
+> **don't** `pkill -f "codex exec"`, which kills every codex process on the
+> machine, including other workstreams' healthy runs.
 
 Base command comes from config so the user can tune it:
 
@@ -149,13 +153,21 @@ Codex is **optional**. Probe for it once at session start (see SKILL.md "First
 actions"), not lazily mid-loop:
 
 ```bash
+set -o pipefail
 command -v codex && codex exec --full-auto -s read-only "reply with: ok" < /dev/null | tail -1
+CODEX_PROBE_EXIT=$?
+set +o pipefail
 ```
 
+Check `CODEX_PROBE_EXIT`, not just whether the line printed — `tail -1` exits 0
+regardless of codex's own exit status, so an auth/network failure would
+otherwise look identical to success.
+
 - **Present** → the external Codex gate is active for every review round.
-- **Absent, or the probe fails with an auth/agent error** (not a findings-based
-  non-zero exit) → tell the user *once* that the pipeline will gate on the
-  in-house preflight review alone, record it in the workstream's `notes.md`, and
+- **Absent, or the probe fails with an auth/agent error** (`CODEX_PROBE_EXIT`
+  non-zero, not a findings-based signal) → tell the user *once* that the
+  pipeline will gate on the in-house preflight review alone, record it in the
+  workstream's `notes.md`, and
   proceed without re-prompting each round. The preflight review's severity-tagged
   findings become the gate: loop until no blocking/major remain.
 

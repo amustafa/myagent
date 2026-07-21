@@ -18,9 +18,9 @@ Unlike `codex review`, agy has no purpose-built review subcommand. A review is a
 single non-interactive **print-mode** run over a diff-scoped prompt:
 
 ```bash
-AGY=$(python3 .../orch.py config agy_cmd)          # default: agy -p --sandbox
+read -r -a AGY_CMD <<< "$(python3 .../orch.py config agy_cmd)"  # default: agy -p --sandbox
 AMODEL=$(python3 .../orch.py config models.reviewer)  # Gemini 3 model; may be blank
-MFLAG=""; [ -n "$AMODEL" ] && MFLAG="--model \"$AMODEL\""
+MFLAG=(); [ -n "$AMODEL" ] && MFLAG=(--model "$AMODEL")
 ```
 
 - `-p` / `--print` runs a single prompt non-interactively and prints the response
@@ -37,10 +37,13 @@ Because the diff is not auto-scoped for you (there's no `--base`), the prompt
 must tell agy which diff to review — use the `git diff <primary_branch>...HEAD`
 phrasing from the `codex exec` fallback in `references/codex.md`.
 
-Run and capture (final report to stdout → file):
+Run and capture (final report to stdout → file). **Never `eval` the assembled
+command** — the review prompt embeds repo-controlled text (spec/diff content),
+and `eval`-ing it would re-parse that text as shell. Pass it as a plain array
+argument instead:
 
 ```bash
-eval "$AGY $MFLAG \"<review prompt>\"" | tee "<reviews-dir>/agy-r<N>.md"
+"${AGY_CMD[@]}" "${MFLAG[@]}" "<review prompt>" | tee "<reviews-dir>/agy-r<N>.md"
 AGY_EXIT=${PIPESTATUS[0]}
 ```
 
@@ -92,8 +95,15 @@ non-sandboxed run *only* for computer-use — reviews and analysis stay
 Probe once at session start (see SKILL.md "First actions"), not lazily mid-loop:
 
 ```bash
+set -o pipefail
 command -v agy && agy -p --sandbox "reply with: ok" | tail -1
+AGY_PROBE_EXIT=$?
+set +o pipefail
 ```
+
+Check `AGY_PROBE_EXIT`, not just whether the line printed — `tail -1` exits 0
+regardless of agy's own exit status, so an auth/network failure would otherwise
+look identical to success.
 
 - **Present** → the external agy gate is active for every review round.
 - **Absent, or the probe fails with an auth/agent error** (not a findings-based
