@@ -1,8 +1,9 @@
 # Build phase
 
-Goal: implement the finalized spec, then drive the code-review loop until Codex
-has no blocking findings. The Builder (Opus) implements; you (Manager) review,
-run Codex, triage, and loop. Same shape as the spec phase, pointed at code.
+Goal: implement the finalized spec, then drive the code-review loop until the
+external agent (`orch.py config external_agent`) has no blocking findings. The
+Builder (Opus) implements; you (Manager) review, run the external agent, triage,
+and loop. Same shape as the spec phase, pointed at code.
 
 Phases covered: `build` → `build_review`. Precondition: the spec is finalized and
 approved (or `auto_advance_to_build` is true).
@@ -38,23 +39,23 @@ When it returns, record the summary (`orch.py log`), skim the diff yourself
 
 ## The review loop (`build_review`)
 
-Repeat produce→review→incorporate until Codex is clean.
+Repeat produce→review→incorporate until the external agent is clean.
 
 Steps A (preflight) and B (correctness review) are **independent** — the structural
-subagent and the codex review don't depend on each other, so run them
+subagent and the external-agent review don't depend on each other, so run them
 **concurrently**, not in series: spawn the `code-preflight` subagent *and* kick off
-`codex review` in the same turn (or, for a large multi-module diff, fan them out
-with a `Workflow` `parallel()`), then consolidate once both return. See
-`references/mechanics.md`.
+the external-agent review in the same turn (or, for a large multi-module diff,
+fan them out with a `Workflow` `parallel()`), then consolidate once both return.
+See `references/mechanics.md`.
 
 ### Step A — preflight: structure & spec conformance (always a subagent)
 
 Always spawn the preflight reviewer here — but its job is **structure/spec
 conformance, not correctness**. The Builder is an Anthropic model, so an Anthropic
-model checking its correctness is a same-model blind spot; correctness is Codex's
-job (Step B). Preflight instead confirms the diff *matches the spec* and has no
-obvious structural gaps — a lens Opus is fine at even on its own team's code. See
-`references/adr/0001-cross-model-review-split.md`.
+model checking its correctness is a same-model blind spot; correctness is the
+external agent's job (Step B). Preflight instead confirms the diff *matches the
+spec* and has no obvious structural gaps — a lens Opus is fine at even on its own
+team's code. See `references/adr/0001-cross-model-review-split.md`.
 
 > **Use the `code-preflight` subagent** to check the changes on branch `<BR>` for
 > `<id>` against the spec at `<spec path>` for **structure and spec conformance**.
@@ -67,32 +68,48 @@ obvious structural gaps — a lens Opus is fine at even on its own team's code. 
 
 Save its findings to `reviews/preflight-code-r<N>.md`.
 
-### Step B — Codex correctness review (the gate)
+### Step B — external-agent correctness review (the gate)
 
-Codex / gpt-5.5 is the **correctness authority** — the cross-model reviewer of the
-Anthropic-written diff, and the verdict that opens the phase. Prefer the
-purpose-built `codex review` against the primary branch. See `references/codex.md`.
-In short:
+The **external agent** (`orch.py config external_agent`) is the **correctness
+authority** — the cross-model reviewer of the Anthropic-written diff, and the
+verdict that opens the phase. The review prompt is the same regardless of
+backend — only the invocation differs. **For the `codex` backend**, use
+`codex exec` (read `$(orch.py config codex_cmd)`, don't hardcode it — a
+customized command must still be honored) with an explicit
+`git diff <primary_branch>...HEAD` instruction — **not**
+`codex review --base … "<prompt>"`, which errors when a base and a custom prompt
+are combined (see `references/codex.md`). Always `< /dev/null`:
 
 ```bash
-codex review --base <primary_branch> \
-  "Verify the changes correctly implement the spec at <spec path> for <id>.
+CODEX=$(python3 .../orch.py config codex_cmd)   # default: codex exec --full-auto -s read-only
+$CODEX -s read-only \
+  "Review the changes on this branch vs <primary_branch> (run: git diff <primary_branch>...HEAD).
+   Verify they correctly implement the spec at <spec path> for <id>.
    Flag bugs, regressions, unhandled edge cases, error-handling gaps,
    security/data-loss, missing tests, and contract breaks. Tag each finding
    blocking|major|minor with file:line. End with: VERDICT: PASS or VERDICT: CHANGES." \
-  | tee <reviews>/codex-code-r<N>.md
+  > <reviews>/codex-code-r<N>.md 2> <reviews>/codex-code-r<N>.stderr.log < /dev/null
 ```
 
 Set the Codex model with `-c model="$(orch.py config models.reviewer)"` if you're
 pinning one (the `reviewer` tier).
 Instruct Codex to exit non-zero when blocking findings exist so you can also gate
-on `$?` (see codex.md). If Codex isn't installed, correctness wasn't
+on `$?` (see codex.md).
+
+**For the `agy` backend**, read `$(orch.py config agy_cmd)` (don't hardcode
+`agy -p --sandbox`) and run the same review prompt through it (there's no
+`review` subcommand, so scope it with `git diff <primary>...HEAD` in the
+prompt) and save to `agy-code-r<N>.md`; parse the `VERDICT:` line for the gate
+— see `references/agy.md` (including the array-based invocation — never `eval`
+the assembled command, the prompt embeds repo-controlled diff/spec text). If
+`external_agent` is `none` or the CLI isn't installed, correctness wasn't
 independently verified — say so to the user rather than treating the Opus
-structural preflight as if it covered correctness.
+structural preflight as if it covered correctness, and see the Exit section
+below for the confirmation this triggers.
 
 ### Step C — triage & consolidate
 
-Merge preflight + Codex findings into `reviews/consolidated-code-r<N>.md`,
+Merge preflight + external-agent findings into `reviews/consolidated-code-r<N>.md`,
 grouped by severity, de-duped, with false positives marked and reasoned. Blocking
 + major = the fix list.
 
@@ -125,7 +142,16 @@ smarter model immediately — don't wait for the cap. Log escalations with
 
 ## Exit
 
-When Codex is clean, check `orch.py config auto_advance_to_integrate`:
+When the external agent is clean, check `orch.py config auto_advance_to_integrate`:
 - **true (default):** proceed to `integration.md`.
 - **false:** set `status waiting_user`, present the branch + a change summary,
   and wait for the user to say go.
+
+**Exception — no independent review happened this round.** If `external_agent`
+was `none`, or the configured CLI was unavailable and the pipeline fell back to
+preflight-only (same-model) review, `auto_advance_to_integrate` does **not**
+apply: set `status waiting_user` regardless of that config, and say explicitly
+in the summary that only same-model preflight reviewed this diff — no
+independent cross-model correctness check occurred. Auto-advancing here would
+integrate code whose only reviewer shares a model family with the Builder that
+wrote it, silently defeating the reason this gate exists.

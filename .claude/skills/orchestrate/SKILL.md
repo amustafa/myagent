@@ -36,16 +36,25 @@ transcript. You keep the state, the decisions, and the summaries.
 | Builder | `builder` subagent | `senior` | `Use the builder subagent to …` |
 | Spec preflight reviewer | `spec-preflight` subagent | `senior` | `Use the spec-preflight subagent to …` |
 | Code preflight reviewer (structure/spec conformance) | `code-preflight` subagent | `senior` | `Use the code-preflight subagent to …` |
-| Correctness reviewer | **Codex / gpt-5.5** (`codex review`) | `reviewer` | `bash` — see `references/codex.md` |
+| Correctness reviewer | **external agent** — Codex/gpt-5.5 or agy/Gemini 3 | `reviewer` | `bash` — see `references/codex.md` or `references/agy.md` |
 | Codex wrapper (fan-out) | `codex-runner` subagent | `junior` | `Use the codex-runner subagent to …` |
-| Computer-use / bulk | Codex / gpt-5.5 (`codex exec`) | `mechanical` | `bash` / `codex-computer-use` skill |
+| Computer-use / bulk | external agent (Codex `codex exec` / agy `-p`) | `mechanical` | `bash` / `codex-computer-use` or `agy-computer-use` skill |
 
 The **tiers** are capability levels, not named roles — one config knob per tier
 (`orch.py config models`): **staff** (fable — long-running, unsupervised),
 **senior** (opus — well-defined execution & structural review), **junior**
-(sonnet — simple tasks + the codex wrapper), **reviewer** (gpt-5.5 — cross-model
-correctness, *outside* the Claude hierarchy), **mechanical** (gpt-5.5 —
-computer-use + bulk work).
+(sonnet — simple tasks + the codex wrapper), **reviewer** (the **external agent** —
+cross-model correctness, *outside* the Claude hierarchy), **mechanical** (the same
+external agent — computer-use + bulk work).
+
+**The external agent is pluggable.** `orch.py config external_agent` picks which
+non-Anthropic CLI serves the `reviewer` + `mechanical` tiers: `codex` (gpt-5.5,
+default — `references/codex.md`), `agy` (Google Antigravity / Gemini 3 —
+`references/agy.md`), or `none` (no external gate — the in-house preflight becomes
+the gate). The pipeline shape below is identical whichever you pick; wherever it
+says "Codex," read "the configured external agent." What matters is only that it's
+a **different model family** than the Builder, so it has no same-model blind spot
+(see `references/adr/0001-cross-model-review-split.md`).
 
 Invoke subagents **explicitly by name** (auto-delegation is unreliable). Each
 subagent starts fresh with no memory of prior rounds, so every delegation
@@ -68,9 +77,10 @@ floor, then take the cheapest model that clears it; tiebreak
 intelligence > taste > cost. Two consequences you apply here:
 - **Reviewing Anthropic-written code with a different model.** The Builder is a
   `senior` (Anthropic) model, so *correctness* review is owned by the `reviewer`
-  tier — **gpt-5.5 via `codex review`** — not by an Anthropic subagent. In-house
-  `code-preflight` stays `senior` but is scoped to **structure/spec conformance**,
-  not correctness (see `references/adr/0001-cross-model-review-split.md`).
+  tier — **the configured external agent** (gpt-5.5 via `codex review`, or Gemini
+  3 via `agy`) — not by an Anthropic subagent. In-house `code-preflight` stays
+  `senior` but is scoped to **structure/spec conformance**, not correctness (see
+  `references/adr/0001-cross-model-review-split.md`).
 - **Escalate on output, not price.** If a subagent's output is below bar, redo it
   a tier up without asking — judge the output, not the price tag (see
   "Escalation" below). When a model is unavailable, fall **up** to the next that
@@ -94,12 +104,15 @@ intelligence > taste > cost. Two consequences you apply here:
    else, mention that fable is the recommended driver and that they can relaunch
    with `claude --model claude-fable-5` — but this is a recommendation, not a
    gate. Proceed regardless; the session model is the user's call.
-6. **Probe for Codex once, up front.** Run `command -v codex`. If it's present,
-   the external Codex gate is active. If it's absent (or a probe call fails with
-   an auth/agent error), Codex is **optional** — tell the user once that the
-   pipeline will gate on the in-house preflight review alone, record the choice
-   in the workstream's `notes.md`, and don't re-prompt every round. Never fail a
-   phase merely because Codex isn't installed. See `references/codex.md`.
+6. **Probe for the external agent once, up front.** Read `orch.py config
+   external_agent`. If `none`, skip — the in-house preflight is the gate. Otherwise
+   probe the named CLI: `command -v codex` (codex) or `command -v agy` (agy). If
+   it's present, the external gate is active. If it's absent (or a probe call
+   fails with an auth/agent error), the external agent is **optional** — tell the
+   user once that the pipeline will gate on the in-house preflight review alone,
+   record the choice in the workstream's `notes.md`, and don't re-prompt every
+   round. Never fail a phase merely because the external agent isn't installed.
+   See `references/codex.md` (codex) or `references/agy.md` (agy).
 
 Read `references/state-model.md` once at the start of a session so you know the
 phases, the on-disk layout, and the exact `orch.py` commands, and skim
@@ -112,15 +125,16 @@ per tier. Read the phase reference for whatever phase you're entering.
 NEW  ──▶  SPEC PHASE                         ──▶ [approval gate] ──▶ BUILD PHASE                          ──▶ INTEGRATE ──▶ DONE
           architect writes spec                                     builder implements
           → preflight (inline or subagent)                          → code-preflight subagent
-          → Codex review                                            → Codex review
+          → external-agent review                                   → external-agent review
           → fresh architect incorporates                            → fresh builder incorporates
-          → loop until Codex has no blocking/major                  → loop until Codex has no blocking
+          → loop until external agent has no blocking/major         → loop until external agent has no blocking
 ```
 
-Both phases share one shape: **produce → preflight review → Codex review →
-consolidate findings → fresh subagent incorporates → repeat until Codex is
-clean.** The only differences are which subagent produces the artifact and what
-Codex is pointed at (the spec file vs. the working-tree diff).
+Both phases share one shape: **produce → preflight review → external-agent
+review → consolidate findings → fresh subagent incorporates → repeat until the
+external agent is clean.** The only differences are which subagent produces the
+artifact and what the external agent is pointed at (the spec file vs. the
+working-tree diff).
 
 ## Phase routing
 
@@ -143,17 +157,21 @@ but the loop is always:
 1. **Produce / revise.** Spawn the producing subagent (architect or builder)
    with the artifact + consolidated findings from the previous round. Round 1
    has no findings — just the task/spec.
-2. **Preflight.** A *cheaper, in-house* pass before spending a Codex call.
+2. **Preflight.** A *cheaper, in-house* pass before spending an external-agent
+   call.
    - Spec phase: you may do a **light inline review yourself** for small specs,
      or spawn `spec-preflight` for anything substantial.
    - Build phase: **always** spawn `code-preflight` on the diff.
-   Preflight catches obvious gaps so Codex spends its attention on real issues.
-3. **Codex review.** Run Codex read-only over the artifact (see
-   `references/codex.md`). Save the raw report to the workstream's `reviews/`
-   folder as `codex-r<N>.md`. Codex is instructed to tag every finding with a
-   severity and to end with a machine-readable verdict line.
-4. **Triage & consolidate.** Merge preflight + Codex findings into one ordered
-   packet, `reviews/consolidated-r<N>.md`, grouped by severity. Drop
+   Preflight catches obvious gaps so the external agent spends its attention on
+   real issues.
+3. **External-agent review.** Run the configured external agent read-only over
+   the artifact (see `references/codex.md` for the `codex` backend,
+   `references/agy.md` for `agy`). Save the raw report to the workstream's
+   `reviews/` folder as `codex-r<N>.md` or `agy-r<N>.md` (name matches the
+   backend). It's instructed to tag every finding with a severity and to end
+   with a machine-readable verdict line.
+4. **Triage & consolidate.** Merge preflight + external-agent findings into one
+   ordered packet, `reviews/consolidated-r<N>.md`, grouped by severity. Drop
    duplicates. Note anything you judge a false positive and why (you're the
    Manager — you arbitrate).
 5. **Decide.**
@@ -219,15 +237,20 @@ fail or the merge conflicts — set `blocked` and report.
 - **Fresh subagent per revision round.** Never reuse a subagent across rounds;
   spawn a new one with the consolidated findings. This keeps each pass focused
   and uncontaminated by earlier dead ends.
-- **Codex is the gate, preflight is the filter — when Codex is available.**
-  Preflight makes Codex rounds cheaper and rarer; Codex's verdict is what opens
-  the gate. When Codex isn't installed (see the startup probe), the in-house
+- **The external agent is the gate, preflight is the filter — when it's
+  available.** Preflight makes external-agent rounds cheaper and rarer; the
+  external agent's verdict is what opens the gate. When `external_agent` is `none`,
+  or the configured CLI isn't installed (see the startup probe), the in-house
   preflight review *becomes* the gate: loop on its severity-tagged findings
-  exactly the same way, exiting when no blocking/major remain.
+  exactly the same way, exiting when no blocking/major remain. **This fallback
+  never auto-integrates**, though — see build-phase.md's Exit section: a build
+  reviewed only by same-model preflight always stops for explicit user
+  confirmation before integration, regardless of `auto_advance_to_integrate`.
 - **Everything important lands on disk** under `.orchestrate/` before you end a
   turn, so any session or account can pick up exactly where you left off.
 - **Stay in the loop with the human.** Summarize each round in a few lines
-  (what the subagent produced, what Codex flagged, what you're doing next).
+  (what the subagent produced, what the external agent flagged, what you're
+  doing next).
   Don't dump raw reports into chat — point to the files in `reviews/`.
 
 ## Reference files
@@ -238,6 +261,9 @@ fail or the merge conflicts — set `blocked` and report.
 - `references/integration.md` — merge, test, update trackers, close out.
 - `references/codex.md` — how to call Codex (`codex review` / `codex exec`), the
   `codex-runner` wrapper, prompts, sandbox modes, parsing the verdict.
+- `references/agy.md` — how to call agy (Antigravity / Gemini 3) as the external
+  agent when `external_agent` is `agy`: print mode, `--sandbox`, `--model`, the
+  shared verdict convention.
 - `references/subagents.md` — how to write good delegation messages; models by
   tier and escalation.
 - `references/mechanics.md` — which mechanism per tier (named subagent, Workflow

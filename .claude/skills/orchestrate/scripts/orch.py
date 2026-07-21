@@ -42,8 +42,13 @@ STATUS_MD = os.path.join(BASE, "STATUS.md")
 DEFAULT_CONFIG = {
     "auto_advance_to_build": False,   # False => stop at awaiting_approval gate
     "auto_advance_to_integrate": True,
-    "use_codex": True,                # gpt-5.5 reviewer gate on when codex is present
+    # Which non-Anthropic CLI backs the cross-model reviewer gate + the
+    # mechanical/computer-use tier: "codex" (gpt-5.5), "agy" (Google Antigravity
+    # / Gemini 3), or "none" (no external gate; in-house preflight is the gate).
+    # Single source of truth — the gate is on iff this is not "none".
+    "external_agent": "codex",
     "codex_cmd": "codex exec --full-auto -s read-only",
+    "agy_cmd": "agy -p --sandbox",    # agy print mode, restricted sandbox (review = read-only)
     "test_cmd": "",                   # e.g. "npm test" or "pytest -q"; blank => skip
     "primary_branch": "main",
     "memory_file": ".orchestrate/memory.md",
@@ -52,15 +57,15 @@ DEFAULT_CONFIG = {
     # Models by capability TIER — see references/subagents.md and
     # @prompts/model-selection.md. staff (fable) = Manager + Architect; senior
     # (opus) = Builder + structure/spec preflight; junior (sonnet) = simple tasks
-    # + the codex-runner wrapper; reviewer (gpt-5.5) = cross-model correctness
-    # review via `codex review`, OUTSIDE the Claude hierarchy; mechanical (gpt-5.5)
-    # = computer-use + bulk work via the Codex CLI.
+    # + the codex-runner wrapper; reviewer = cross-model correctness review by the
+    # external_agent (gpt-5.5 via `codex review`, or Gemini 3 via `agy`), OUTSIDE
+    # the Claude hierarchy; mechanical = computer-use + bulk work via that same CLI.
     "models": {
         "staff": "claude-fable-5",     # Manager (recommended session model) + Architect
         "senior": "opus",              # Builder + structure/spec-conformance preflight
         "junior": "claude-sonnet-5",   # simple tasks + codex-runner wrapper
-        "reviewer": "gpt-5-codex-max", # correctness review (gpt-5.5); "" when use_codex off
-        "mechanical": "gpt-5-codex-max",  # computer-use + bulk work (gpt-5.5)
+        "reviewer": "gpt-5-codex-max", # correctness review; "" when external_agent is "none"
+        "mechanical": "gpt-5-codex-max",  # computer-use + bulk work (external_agent model)
     },
 }
 

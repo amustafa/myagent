@@ -30,27 +30,40 @@
       "required": true
     },
     {
-      "key": "use_codex",
-      "label": "Gate reviews on the external reviewer tier (gpt-5.5 / Codex)",
-      "type": "bool",
-      "default": true
+      "key": "external_agent",
+      "label": "External cross-model agent — reviewer gate + computer-use/bulk",
+      "type": "enum-one",
+      "help": "A non-Anthropic CLI that reviews Anthropic-written code (avoiding a same-model blind spot) and runs computer-use/bulk work. `codex` = gpt-5.5 (OpenAI Codex CLI); `agy` = Google Antigravity CLI (Gemini 3); `none` = no external gate (the in-house preflight review becomes the gate). Whichever you pick backs BOTH the reviewer and mechanical tiers.",
+      "enum": ["codex", "agy", "none"],
+      "default": "codex",
+      "required": true
     },
     {
       "key": "models.reviewer",
-      "label": "Reviewer tier — cross-model correctness review (gpt-5.5, outside the hierarchy)",
+      "label": "Codex reviewer model (gpt-5.5) — cross-model correctness review",
       "type": "enum-or-custom",
-      "help": "Reviews Anthropic-written code with a different model to avoid a same-model blind spot. Runs via `codex review`. Only used when the reviewer gate is on.",
+      "help": "Reviews Anthropic-written code with a different model to avoid a same-model blind spot. Runs via `codex review`.",
       "enum": ["gpt-5-codex", "gpt-5-codex-max"],
       "default": "gpt-5-codex-max",
-      "showIf": { "use_codex": true }
+      "showIf": { "external_agent": "codex" }
     },
     {
       "key": "models.mechanical",
-      "label": "Mechanical tier — computer-use & bulk work (gpt-5.5 / Codex)",
-      "type": "enum-list",
+      "label": "Codex mechanical model (gpt-5.5) — computer-use & bulk work",
+      "type": "enum-or-custom",
       "help": "Effectively-free bulk mechanical work and computer-use (simulators, screenshots, app launching, runtime inspection) via the Codex CLI. Used by the codex-computer-use skill.",
-      "enum": ["gpt-5-codex", "sonnet-5"],
-      "default": "gpt-5-codex"
+      "enum": ["gpt-5-codex", "gpt-5-codex-max", "sonnet-5"],
+      "default": "gpt-5-codex-max",
+      "showIf": { "external_agent": "codex" }
+    },
+    {
+      "key": "agy_model",
+      "label": "agy model (Gemini 3) — reviewer gate + computer-use/bulk",
+      "type": "enum-or-custom",
+      "help": "Model agy pins via --model for BOTH the reviewer gate and mechanical work. Leave blank to use agy's own default. Run `agy models` to list exact names. Prefer a strong non-Anthropic model (a Gemini 3 Pro tier) for correctness review; picking agy's Claude models weakens the cross-model blind-spot argument. Used by the agy-computer-use skill.",
+      "enum": ["Gemini 3.1 Pro (High)", "Gemini 3.1 Pro (Low)", "Gemini 3.5 Flash (High)", "GPT-OSS 120B (Medium)"],
+      "default": "",
+      "showIf": { "external_agent": "agy" }
     },
     {
       "key": "test_cmd",

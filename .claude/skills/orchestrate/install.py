@@ -31,31 +31,47 @@ def resolve_config(opts):
       - staff (fable) — Manager + Architect: long-running, unsupervised, taste-heavy.
       - senior (opus) — Builder + structure/spec-conformance preflight.
       - junior (sonnet) — simple tasks + the codex-runner wrapper.
-      - reviewer (gpt-5.5) — cross-model correctness review, OUTSIDE the Claude
-        hierarchy, via `codex review`.
-      - mechanical (gpt-5.5) — computer-use + bulk work via the Codex CLI.
+      - reviewer — cross-model correctness review, OUTSIDE the Claude hierarchy,
+        via the external_agent CLI (`codex review`, or `agy`).
+      - mechanical — computer-use + bulk work via that same external_agent CLI.
     staff/senior/junior are ordered fallback lists (fall UP when unavailable);
-    reviewer/mechanical are single codex-model values.
+    reviewer/mechanical are single model values whose backend depends on
+    external_agent ("codex" = gpt-5.5, "agy" = Gemini 3, "none" = no external gate).
     """
     staff = opts.get("models.staff") or ["claude-fable-5"]
     senior = opts.get("models.senior") or ["claude-opus-4-8"]
     junior = opts.get("models.junior") or ["claude-sonnet-5"]
-    use_codex = bool(opts.get("use_codex", True))
-    reviewer = opts.get("models.reviewer", "gpt-5-codex-max")
-    mechanical = opts.get("models.mechanical", "gpt-5-codex-max")
+    external_agent = opts.get("external_agent", "codex")
+
+    # The reviewer/mechanical models depend on which external CLI is selected.
+    if external_agent == "codex":
+        reviewer = opts.get("models.reviewer", "gpt-5-codex-max")
+        mechanical = opts.get("models.mechanical", "gpt-5-codex-max")
+    elif external_agent == "agy":
+        # agy pins a single model via --model; blank => agy's own default.
+        # The same model backs both the reviewer gate and mechanical work.
+        agy_model = opts.get("agy_model", "")
+        reviewer = agy_model
+        mechanical = agy_model
+    elif external_agent == "none":
+        reviewer = ""
+        mechanical = ""
+    else:
+        raise ValueError(f"unsupported external_agent: {external_agent!r}")
+
     cfg = {
         "models": {
             "staff": staff[0],
             "senior": senior[0],
             "junior": junior[0],
-            "reviewer": reviewer if use_codex else "",
+            "reviewer": reviewer,
             "mechanical": mechanical,
         },
         # full ordered preference lists, for fallback (fall UP when unavailable)
         "models_staff": staff,
         "models_senior": senior,
         "models_junior": junior,
-        "use_codex": use_codex,
+        "external_agent": external_agent,
         "test_cmd": opts.get("test_cmd", ""),
         "primary_branch": opts.get("primary_branch", "main"),
         "auto_advance_to_build": bool(opts.get("auto_advance_to_build", False)),
