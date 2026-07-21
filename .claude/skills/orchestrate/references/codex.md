@@ -1,5 +1,11 @@
 # Codex — the external reviewer
 
+> **Backend selector.** The external reviewer + mechanical tier is served by
+> whichever CLI `orch.py config external_agent` names: `codex` (this file), `agy`
+> (`references/agy.md`, Antigravity / Gemini 3), or `none` (no external gate —
+> preflight becomes the gate). The review **loop** is identical across backends;
+> only the invocation differs. This file is the `codex` how-to.
+
 Codex is OpenAI's CLI (gpt-5.5). You call it from `bash` as the independent,
 cross-model reviewer whose verdict gates each phase — and, more generally, as the
 way to reach gpt-5.5 for cross-model review of Anthropic-written code and bulk
@@ -8,17 +14,28 @@ modify anything.
 
 ## Two subcommands, two jobs
 
-- **`codex review`** — purpose-built, non-interactive code review. Prefer this for
-  the build-phase correctness gate. Point it at the base branch:
+- **`codex review`** — purpose-built, non-interactive code review. Point it at the
+  base branch:
 
   ```bash
   REVIEWER=$(python3 .../orch.py config models.reviewer)   # gpt-5.5 model; may be blank
-  codex review --base <primary_branch> ${REVIEWER:+-c model="$REVIEWER"} "<review instructions>"
-  codex review --uncommitted ${REVIEWER:+-c model="$REVIEWER"} "<review instructions>"
+  codex review --base <primary_branch> ${REVIEWER:+-c model="$REVIEWER"} < /dev/null
+  codex review --uncommitted ${REVIEWER:+-c model="$REVIEWER"} < /dev/null
   ```
 
   The `reviewer` tier model comes from `orch.py config models.reviewer`; blank
   means use Codex's default.
+
+  > ### ⚠️ `--base`/`--uncommitted` cannot be combined with a custom PROMPT
+  > In current builds, `codex review --base <branch> "<instructions>"` **errors**:
+  > `the argument '--base <BRANCH>' cannot be used with '[PROMPT]'` (a 0-byte report
+  > and exit 2 — looks like a failed review). So `codex review` with a base only
+  > runs its *default* review; there is no place for security-focused instructions.
+  > **When you need a directed review (the usual case — you want to point the
+  > reviewer at specific invariants), use `codex exec` instead** with the git-diff
+  > phrasing (see "Code review" prompt below). That is the primary path for a
+  > *directed* correctness gate; bare `codex review --base` is fine only when a
+  > generic pass suffices. Both still require `< /dev/null`.
 
 - **`codex exec`** — general non-interactive agent run, for everything that isn't a
   branch review (spec review, computer-use/bulk **mechanical** work, one-off gpt-5.5
@@ -41,6 +58,19 @@ Claude Code's bash is non-interactive, so use `codex exec` (never bare `codex`,
 which opens a TUI and hangs). Use `--full-auto` so it doesn't stall on an
 approval prompt, and `-s read-only` so a review can't touch files.
 
+> ### ⛔ ALWAYS redirect stdin: `< /dev/null`
+>
+> **Every** `codex exec` / `codex review` call MUST end with `< /dev/null`.
+> When stdin is left open (which it is in a backgrounded Bash tool call, and
+> often in a foreground one), `codex exec` prints `Reading additional input from
+> stdin...` and **blocks forever waiting for input that never comes** — the
+> prompt argument is treated as a *prefix* and codex waits to append more from
+> stdin. The report stays 0 bytes and the task looks "hung." This is a recurring
+> mistake; closing stdin is the fix, and it is harmless when stdin was empty
+> anyway. If a codex call ever appears to hang, check `codex-r<N>.stderr.log` for
+> that "Reading additional input" line — it means you forgot `< /dev/null`; kill
+> it (`pkill -f "codex exec"`) and rerun with the redirect.
+
 Base command comes from config so the user can tune it:
 
 ```bash
@@ -49,18 +79,23 @@ CMODEL=$(python3 .../orch.py config models.reviewer)  # gpt-5.5 reviewer model; 
 MFLAG=""; [ -n "$CMODEL" ] && MFLAG="-m $CMODEL"
 ```
 
-Run and capture (stream progress to stderr, final report to stdout → file):
+Run and capture (progress → stderr log, final report → file; **stdin closed**):
 
 ```bash
-$CODEX $MFLAG "<review prompt>" | tee "<reviews-dir>/codex-r<N>.md"
-CODEX_EXIT=${PIPESTATUS[0]}
+$CODEX $MFLAG "<review prompt>" > "<reviews-dir>/codex-r<N>.md" 2> "<reviews-dir>/codex-r<N>.stderr.log" < /dev/null
+CODEX_EXIT=$?
 ```
 
 Notes:
+- **`< /dev/null` is mandatory** (see the box above) — the single most common
+  reason a codex review "hangs."
+- Redirect to a file rather than `tee` for background runs — a piped `tee` in a
+  detached shell can itself keep the pipe open; a plain `>` with `< /dev/null` is
+  the robust shape. (Foreground `| tee` is fine *with* `< /dev/null` if you want
+  to watch it, capturing exit via `${PIPESTATUS[0]}`.)
 - Model flags go **after** the `exec` subcommand.
 - If the base command already includes `exec`, don't add it again.
-- `tee` keeps the raw report on disk in the workstream's `reviews/` folder.
-- Prefer capturing exit code via `${PIPESTATUS[0]}` since you're piping.
+- Keep the raw report on disk in the workstream's `reviews/` folder.
 
 ## Review prompts
 
@@ -78,9 +113,9 @@ For each finding output: [SEVERITY: blocking|major|minor] <file/section> — <is
 End with exactly one line:  VERDICT: PASS   (no blocking/major)  or  VERDICT: CHANGES.
 ```
 
-**Code review** (with `codex review --base <primary_branch>` the diff is already
-scoped, so the instructions are just the *what to look for*; the `git diff` phrasing
-below is only needed if you fall back to `codex exec`):
+**Code review** (via `codex exec`, the primary path for a directed review — see
+the `--base`/custom-prompt warning above — the `git diff` phrasing below scopes
+the diff since there's no `--base` flag to do it for you):
 
 ```
 Review the changes on this branch vs <primary_branch>
@@ -114,7 +149,7 @@ Codex is **optional**. Probe for it once at session start (see SKILL.md "First
 actions"), not lazily mid-loop:
 
 ```bash
-command -v codex && codex exec --full-auto -s read-only "reply with: ok" | tail -1
+command -v codex && codex exec --full-auto -s read-only "reply with: ok" < /dev/null | tail -1
 ```
 
 - **Present** → the external Codex gate is active for every review round.

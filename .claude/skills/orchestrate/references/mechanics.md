@@ -33,6 +33,12 @@ Two mechanisms this pipeline deliberately **avoids**:
 | `mechanical` | computer-use / bulk | **`codex-computer-use`** skill · **direct bash** `codex exec` · or **`codex-runner`** nodes in a Workflow for bulk-over-N |
 | `junior` | simple tasks | a light named subagent, or **`codex-runner`** |
 
+> The `reviewer`/`mechanical` rows above assume the `codex` backend. When
+> `external_agent` is `agy`, run it as **direct bash** `agy -p` (there's no
+> `agy-runner` subagent — the Manager holds the shell, so call it directly) and
+> use the **`agy-computer-use`** skill for the mechanical tier. See
+> `references/agy.md`.
+
 ## Decision guide
 
 - **One artifact, one pass** → single named subagent. (All the produce steps, and

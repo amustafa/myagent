@@ -37,6 +37,13 @@ So routine, well-bounded work lands on sonnet; hard or long-running autonomous
 work climbs to fable; and cost only decides between models that are *already good
 enough*.
 
+**Set `model:` on every delegation — never omit it.** An omitted model inherits
+your *session* model, which silently pushes low-floor work (searches, mechanical
+edits, read-only preflights) onto opus or fable. Inheritance is exactly why
+sonnet "never gets picked": the floor test only fires when you name the model. A
+fable session must still hand its Explore/search/bulk-edit subagents down to
+sonnet — the session model is the ceiling, not the default for what it spawns.
+
 ## The lanes (defaults, not limits)
 
 - **fable** — big, long-running, autonomous tasks: design, orchestration,
@@ -48,7 +55,12 @@ enough*.
 - **gpt-5.5** — bulk mechanical work (it's effectively free), and **reviewing
   code written by Anthropic models** (a different model catches what a same-model
   reviewer is blind to).
-- **never use haiku.**
+
+> ## ⛔ NEVER USE HAIKU
+>
+> A hard rule, not a default: Haiku is off the scoreboard on purpose — never for
+> the cheapest task, never as a cost tiebreak, never as a fallback. If the floor
+> test lands on Haiku, the floor is wrong; use sonnet/gpt-5.5, or fall **up**.
 
 These are defaults, not limits — you have the right to override them. If a
 cheaper model's output doesn't meet the bar, **re-run or redo the work with a
@@ -60,9 +72,11 @@ might not clear it.
 
 ## Reaching gpt-5.5 (via the Codex CLI)
 
-gpt-5.5 runs through OpenAI's `codex` CLI. Two ways in — use whichever fits:
+gpt-5.5 runs through OpenAI's `codex` CLI. **Pick by where you are:** holding a
+shell → call `codex` directly. Inside a fan-out (Workflow / Agent tool) → wrap it
+in the `codex-runner` subagent, since you can't spawn a gpt-5.5 agent directly.
 
-**Directly from a shell** (when you already hold Bash):
+**1. Directly from a shell** — the default; use it whenever you already hold Bash:
 
 ```bash
 # General delegation / bulk mechanical work (read-only by default):
@@ -73,13 +87,30 @@ codex review --base <branch> "<review instructions>"
 ```
 
 `<codex_model>` is configurable (e.g. `gpt-5-codex-max`) — treat "gpt-5.5" as
-whatever your Codex model is set to, not a hard-coded string. Use `codex exec`
-for general work and `codex review` for reviews. Widen the sandbox
-(`-s workspace-write`, `--full-auto`) only when the task must actually *do*
-things (see the `codex-computer-use` skill).
+whatever your Codex model is set to, not a hard-coded string. `codex exec` for
+general work, `codex review` for reviews. The sandbox is read-only by default;
+widen it (`-s workspace-write`, `--full-auto`) only when the task must actually
+*do* things (see the `codex-computer-use` skill).
 
-**As a node in a subagent fan-out** (Workflow `parallel()`/`pipeline()`, or the
-Agent tool) — you can't spawn a gpt-5.5 agent directly, so use the **`codex-runner`
-subagent**: a sonnet model at **low reasoning effort** that does nothing but run
-your self-contained prompt through `codex exec` and return the result. Invoke it
-by name, or as an `agentType` in a Workflow stage.
+**2. As a node in a subagent fan-out** (Workflow `parallel()`/`pipeline()`, or a
+parallel Agent-tool spawn) — reach for this *only* when you need gpt-5.5 running
+concurrently alongside other agents; a lone call belongs in path 1. Use the
+**`codex-runner` subagent** (sonnet at low reasoning effort, which just shells out
+to `codex exec` and returns the result verbatim). Invoke it by name, or as an
+`agentType` in a Workflow stage.
+
+## Playwright / browser automation → always a sonnet subagent
+
+**Never call the Playwright tools (`mcp__…playwright…`) in your own session.**
+Every browser command — navigate, click, snapshot, screenshot, evaluate — runs
+in a subagent spawned with `model: sonnet`, which drives the browser and returns
+**only the conclusion** (what it observed / whether it succeeded), never the raw
+snapshot, DOM dump, or screenshot blob.
+
+Why: driving a browser is low-floor mechanical work (sonnet clears the floor),
+and its outputs are huge and near-worthless in your context. Delegating keeps the
+blobs out of your window — same reason runtime/computer-use goes to the
+`codex-computer-use` skill. Give the subagent a self-contained goal ("log in as
+X, confirm the dashboard renders the Y widget, report pass/fail + any console
+errors"), not a click-by-click script — let it run the whole flow and hand back
+the verdict.

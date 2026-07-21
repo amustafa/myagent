@@ -87,22 +87,23 @@ delegation messages rather than hand-building paths.
 |-----|---------|---------|
 | `auto_advance_to_build` | `false` | if false, stop at the approval gate after spec |
 | `auto_advance_to_integrate` | `true` | if false, pause for human review before integrating |
-| `use_codex` | `true` | gate reviews on the `reviewer` tier (gpt-5.5 / Codex) when present |
-| `codex_cmd` | `codex exec --full-auto -s read-only` | base Codex command for `codex exec` calls |
+| `external_agent` | `codex` | which non-Anthropic CLI backs the reviewer gate + mechanical tier: `codex` (gpt-5.5), `agy` (Antigravity / Gemini 3), or `none` (no external gate — preflight is the gate) |
+| `codex_cmd` | `codex exec --full-auto -s read-only` | base Codex command for `codex exec` calls (used when `external_agent` is `codex`) |
+| `agy_cmd` | `agy -p --sandbox` | base agy command for print-mode review calls (used when `external_agent` is `agy`) |
 | `test_cmd` | `""` | e.g. `npm test`, `pytest -q`; blank => skip tests (warn) |
 | `primary_branch` | `main` | branch you integrate into |
 | `memory_file` | `.orchestrate/memory.md` | long-term memory |
 | `backlog_file` | `.orchestrate/backlog.md` | backlog / follow-ups |
 | `tracker_file` | `.orchestrate/STATUS.md` | status tracker (auto-generated) |
-| `models.<tier>` | see below | model per capability tier (`staff`/`senior`/`junior`/`reviewer`/`mechanical`); the `reviewer`/`mechanical` values are the codex model |
+| `models.<tier>` | see below | model per capability tier (`staff`/`senior`/`junior`/`reviewer`/`mechanical`); the `reviewer`/`mechanical` values are the `external_agent` model (a gpt-5.5 model for `codex`, a Gemini 3 model — or blank for agy's default — for `agy`) |
 
 Models are keyed by **capability tier**, not named role. Tier defaults:
 `staff` `claude-fable-5` (Manager — recommended session model, user's choice — +
 Architect), `senior` `opus` (Builder + structure/spec-conformance preflight),
 `junior` `claude-sonnet-5` (simple tasks + the codex-runner wrapper), `reviewer`
-`gpt-5-codex-max` (gpt-5.5 correctness review via `codex review`, outside the
-Claude hierarchy; blank when `use_codex` is off), `mechanical` `gpt-5-codex-max`
-(gpt-5.5 computer-use + bulk work). The staff/senior/junior defaults mirror the
+`gpt-5-codex-max` (cross-model correctness review by the `external_agent`, outside
+the Claude hierarchy; blank when `external_agent` is `none`), `mechanical`
+`gpt-5-codex-max` (computer-use + bulk work). The staff/senior/junior defaults mirror the
 agent frontmatter; if you change one, change it in both places
 (`.claude/agents/<role>.md` and here) so they don't drift. Full rule:
 `@prompts/model-selection.md`.

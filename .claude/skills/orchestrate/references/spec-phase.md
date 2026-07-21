@@ -55,10 +55,13 @@ Do this before every Codex call. Two options; pick by size/complexity:
 
   Save its returned findings to `reviews/preflight-r<N>.md`.
 
-### Step B — Codex review
+### Step B — external-agent review
 
-Run Codex read-only over the spec and save the raw report. See
-`references/codex.md` for the exact command and the review prompt. In short:
+Run the configured **external agent** (`orch.py config external_agent`) read-only
+over the spec and save the raw report. If `external_agent` is `none` or the CLI
+isn't installed, skip this step — the preflight findings from Step A are the gate.
+See `references/codex.md` (codex) or `references/agy.md` (agy) for the exact
+command and the review prompt. In short, for the `codex` backend:
 
 ```bash
 $(orch.py config codex_cmd) [ -m $(orch.py config models.reviewer) ] \
@@ -68,6 +71,9 @@ $(orch.py config codex_cmd) [ -m $(orch.py config models.reviewer) ] \
    blocking|major|minor. End with a line: VERDICT: PASS or VERDICT: CHANGES." \
   | tee <reviews>/codex-r<N>.md
 ```
+
+For the `agy` backend, run the same prompt through `agy -p --sandbox` and save to
+`agy-r<N>.md` (see `references/agy.md`).
 
 ### Step C — triage & consolidate
 

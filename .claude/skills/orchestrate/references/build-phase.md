@@ -67,28 +67,36 @@ obvious structural gaps — a lens Opus is fine at even on its own team's code. 
 
 Save its findings to `reviews/preflight-code-r<N>.md`.
 
-### Step B — Codex correctness review (the gate)
+### Step B — external-agent correctness review (the gate)
 
-Codex / gpt-5.5 is the **correctness authority** — the cross-model reviewer of the
-Anthropic-written diff, and the verdict that opens the phase. Prefer the
-purpose-built `codex review` against the primary branch. See `references/codex.md`.
-In short:
+The **external agent** (`orch.py config external_agent`) is the **correctness
+authority** — the cross-model reviewer of the Anthropic-written diff, and the
+verdict that opens the phase. For the `codex` backend, use `codex exec` with an
+explicit `git diff <primary_branch>...HEAD` instruction — **not**
+`codex review --base … "<prompt>"`, which errors when a base and a custom prompt
+are combined (see `references/codex.md`). Always `< /dev/null`:
 
 ```bash
-codex review --base <primary_branch> \
-  "Verify the changes correctly implement the spec at <spec path> for <id>.
+codex exec -s read-only \
+  "Review the changes on this branch vs <primary_branch> (run: git diff <primary_branch>...HEAD).
+   Verify they correctly implement the spec at <spec path> for <id>.
    Flag bugs, regressions, unhandled edge cases, error-handling gaps,
    security/data-loss, missing tests, and contract breaks. Tag each finding
    blocking|major|minor with file:line. End with: VERDICT: PASS or VERDICT: CHANGES." \
-  | tee <reviews>/codex-code-r<N>.md
+  > <reviews>/codex-code-r<N>.md 2> <reviews>/codex-code-r<N>.stderr.log < /dev/null
 ```
 
 Set the Codex model with `-c model="$(orch.py config models.reviewer)"` if you're
 pinning one (the `reviewer` tier).
 Instruct Codex to exit non-zero when blocking findings exist so you can also gate
-on `$?` (see codex.md). If Codex isn't installed, correctness wasn't
-independently verified — say so to the user rather than treating the Opus
-structural preflight as if it covered correctness.
+on `$?` (see codex.md).
+
+For the `agy` backend, run the same review prompt through `agy -p --sandbox`
+(there's no `review` subcommand, so scope it with `git diff <primary>...HEAD` in
+the prompt) and save to `agy-code-r<N>.md`; parse the `VERDICT:` line for the gate
+— see `references/agy.md`. If `external_agent` is `none` or the CLI isn't
+installed, correctness wasn't independently verified — say so to the user rather
+than treating the Opus structural preflight as if it covered correctness.
 
 ### Step C — triage & consolidate
 
